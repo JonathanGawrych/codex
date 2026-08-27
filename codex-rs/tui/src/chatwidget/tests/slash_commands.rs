@@ -1,5 +1,6 @@
 use super::*;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
+use crate::chatwidget::input_queue::SessionExitAfterTurn;
 use pretty_assertions::assert_eq;
 use serial_test::serial;
 
@@ -118,6 +119,54 @@ fn next_copy_selection(
     };
     assert_matches!(rx.try_recv(), Ok(AppEvent::SettingsSelectionClosed));
     selection
+}
+
+async fn assert_slash_command_replies_before_session_exit(
+    command: SlashCommand,
+    session_exit: SessionExitAfterTurn,
+) {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    let command_text = format!("/{} thanks", command.command());
+
+    submit_composer_text(&mut chat, &command_text);
+
+    match next_submit_op(&mut op_rx) {
+        Op::UserTurn { items, .. } => assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: "thanks".to_string(),
+                text_elements: Vec::new(),
+            }]
+        ),
+        other => panic!("expected user turn for {command_text}, got {other:?}"),
+    }
+    assert_eq!(chat.input_queue.session_exit_after_turn, Some(session_exit));
+    assert!(
+        std::iter::from_fn(|| rx.try_recv().ok()).all(|event| !matches!(
+            event,
+            AppEvent::ArchiveCurrentThread | AppEvent::DeleteCurrentThread
+        )),
+        "expected {command_text} to wait for the assistant response"
+    );
+
+    handle_turn_started(&mut chat, "turn-1");
+    complete_turn_with_message(&mut chat, "turn-1", Some("You're welcome."));
+
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    let exit_requested = match session_exit {
+        SessionExitAfterTurn::Archive => events
+            .iter()
+            .any(|event| matches!(event, AppEvent::ArchiveCurrentThread)),
+        SessionExitAfterTurn::Delete => events
+            .iter()
+            .any(|event| matches!(event, AppEvent::DeleteCurrentThread)),
+    };
+    assert!(
+        exit_requested,
+        "expected session exit after the assistant response; events: {events:?}"
+    );
+    assert_eq!(chat.input_queue.session_exit_after_turn, None);
 }
 
 #[tokio::test]
@@ -3053,39 +3102,155 @@ async fn slash_import_opens_claude_code_import_picker() {
 }
 
 #[tokio::test]
-async fn slash_archive_confirmation_requests_current_thread_archive() {
+async fn slash_archive_requests_current_thread_archive() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     chat.dispatch_command(SlashCommand::Archive);
-
-    assert!(chat.bottom_pane.has_active_view());
-    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert_chatwidget_snapshot!("slash_archive_confirmation_popup", popup);
-
-    chat.handle_key_event(KeyEvent::from(KeyCode::Down));
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     assert_matches!(rx.try_recv(), Ok(AppEvent::ArchiveCurrentThread));
 }
 
 #[tokio::test]
-async fn slash_delete_confirmation_requests_current_thread_delete() {
+async fn slash_delete_requests_current_thread_delete() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
     chat.dispatch_command(SlashCommand::Delete);
 
-    assert!(chat.bottom_pane.has_active_view());
-    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
-
-    let popup = render_bottom_popup(&chat, /*width*/ 80);
-    assert_chatwidget_snapshot!("slash_delete_confirmation_popup", popup);
-
-    chat.handle_key_event(KeyEvent::from(KeyCode::Down));
-    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-
     assert_matches!(rx.try_recv(), Ok(AppEvent::DeleteCurrentThread));
+}
+
+#[tokio::test]
+async fn slash_archive_with_message_replies_before_archiving() {
+    assert_slash_command_replies_before_session_exit(
+        SlashCommand::Archive,
+        SessionExitAfterTurn::Archive,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn slash_delete_with_message_replies_before_deleting() {
+    assert_slash_command_replies_before_session_exit(
+        SlashCommand::Delete,
+        SessionExitAfterTurn::Delete,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn slash_session_exit_with_message_restores_additional_input() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    submit_composer_text(&mut chat, "/archive thanks");
+    let _ = next_submit_op(&mut op_rx);
+    let _ = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+
+    chat.bottom_pane
+        .set_composer_text("one more thing".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(chat.bottom_pane.composer_text(), "one more thing");
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    let rendered = drain_insert_history(&mut rx)
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains(
+            "'/archive' is waiting for the current response to finish. Additional input was restored to the composer."
+        ),
+        "expected pending archive error, got {rendered:?}"
+    );
+}
+
+#[tokio::test]
+async fn interrupted_reply_cancels_pending_archive() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    submit_composer_text(&mut chat, "/archive thanks");
+    let _ = next_submit_op(&mut op_rx);
+    let _ = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    handle_turn_started(&mut chat, "turn-1");
+
+    handle_turn_interrupted(&mut chat, "turn-1");
+
+    assert_eq!(chat.input_queue.session_exit_after_turn, None);
+    assert!(
+        std::iter::from_fn(|| rx.try_recv().ok()).all(|event| !matches!(
+            event,
+            AppEvent::ArchiveCurrentThread | AppEvent::DeleteCurrentThread
+        ))
+    );
+}
+
+#[tokio::test]
+async fn failed_reply_cancels_pending_delete() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    submit_composer_text(&mut chat, "/delete thanks");
+    let _ = next_submit_op(&mut op_rx);
+    let _ = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    handle_turn_started(&mut chat, "turn-1");
+
+    chat.handle_server_notification(
+        ServerNotification::TurnCompleted(TurnCompletedNotification {
+            thread_id: chat.thread_id.map(|id| id.to_string()).unwrap_or_default(),
+            turn: app_server_turn(
+                "turn-1",
+                AppServerTurnStatus::Failed,
+                /*duration_ms*/ None,
+                /*error*/ None,
+            ),
+        }),
+        /*replay_kind*/ None,
+    );
+
+    assert_eq!(chat.input_queue.session_exit_after_turn, None);
+    assert!(
+        std::iter::from_fn(|| rx.try_recv().ok()).all(|event| !matches!(
+            event,
+            AppEvent::ArchiveCurrentThread | AppEvent::DeleteCurrentThread
+        ))
+    );
+}
+
+#[tokio::test]
+async fn empty_reply_cancels_pending_archive() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    submit_composer_text(&mut chat, "/archive thanks");
+    let _ = next_submit_op(&mut op_rx);
+    let _ = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    handle_turn_started(&mut chat, "turn-1");
+
+    complete_turn_with_message(&mut chat, "turn-1", /*message*/ None);
+
+    assert_eq!(chat.input_queue.session_exit_after_turn, None);
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events.iter().all(|event| !matches!(
+            event,
+            AppEvent::ArchiveCurrentThread | AppEvent::DeleteCurrentThread
+        )),
+        "expected archive to remain open without an assistant response; events: {events:?}"
+    );
+    let rendered = events
+        .iter()
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => {
+                Some(lines_to_single_string(&cell.display_lines(/*width*/ 80)))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        rendered.contains(
+            "'/archive' was not run because the turn completed without an assistant response."
+        ),
+        "expected empty response error, got {rendered:?}"
+    );
 }
 
 #[tokio::test]

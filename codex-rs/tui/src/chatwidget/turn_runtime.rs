@@ -3,6 +3,7 @@
 //! This module owns task start/completion state, runtime metrics, plan updates,
 //! and final-message separator handling.
 
+use super::input_queue::SessionExitAfterTurn;
 use super::*;
 
 const LEGACY_SAFETY_ACCESS_BLOCK_PREFIX: &str =
@@ -202,6 +203,26 @@ impl ChatWidget {
         }
         self.request_redraw();
 
+        if !from_replay && let Some(session_exit) = self.input_queue.session_exit_after_turn.take()
+        {
+            if notification_response.is_empty() {
+                let command = session_exit.command();
+                self.add_error_message(format!(
+                    "'{command}' was not run because the turn completed without an assistant response."
+                ));
+            } else {
+                match session_exit {
+                    SessionExitAfterTurn::Archive => {
+                        self.app_event_tx.send(AppEvent::ArchiveCurrentThread);
+                    }
+                    SessionExitAfterTurn::Delete => {
+                        self.app_event_tx.send(AppEvent::DeleteCurrentThread);
+                    }
+                }
+                return;
+            }
+        }
+
         let had_pending_steers = !self.input_queue.pending_steers.is_empty();
         self.refresh_pending_input_preview();
 
@@ -335,6 +356,7 @@ impl ChatWidget {
         self.clear_active_hook_cell();
         // Reset running state and clear streaming buffers.
         self.input_queue.user_turn_pending_start = false;
+        self.input_queue.session_exit_after_turn = None;
         self.clear_guardian_review_status();
         self.turn_lifecycle.finish();
         self.update_task_running_state();

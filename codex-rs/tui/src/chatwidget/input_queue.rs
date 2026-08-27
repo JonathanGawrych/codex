@@ -11,6 +11,21 @@ use super::UserMessage;
 use super::UserMessageHistoryRecord;
 use super::user_message_preview_text;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SessionExitAfterTurn {
+    Archive,
+    Delete,
+}
+
+impl SessionExitAfterTurn {
+    pub(super) fn command(self) -> &'static str {
+        match self {
+            Self::Archive => "/archive",
+            Self::Delete => "/delete",
+        }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct PendingInputPreview {
     pub(super) queued_messages: Vec<String>,
@@ -41,6 +56,8 @@ pub(super) struct InputQueueState {
     /// When set, the next interrupt should resubmit all pending steers as one
     /// fresh user turn instead of restoring them into the composer.
     pub(super) submit_pending_steers_after_interrupt: bool,
+    /// Session action to run after the active live turn completes successfully.
+    pub(super) session_exit_after_turn: Option<SessionExitAfterTurn>,
     pub(super) suppress_queue_autosend: bool,
     /// Hold submissions while a usage failure or backend-directed model fallback is resolved.
     pub(super) rate_limit_recovery_pending: bool,
@@ -61,6 +78,7 @@ impl InputQueueState {
         self.rejected_steer_history_records.clear();
         self.pending_steers.clear();
         self.submit_pending_steers_after_interrupt = false;
+        self.session_exit_after_turn = None;
         self.rate_limit_recovery_pending = false;
     }
 
@@ -146,6 +164,7 @@ mod tests {
             .push_back(UserMessage::from("rejected"));
         state.user_turn_pending_start = true;
         state.submit_pending_steers_after_interrupt = true;
+        state.session_exit_after_turn = Some(SessionExitAfterTurn::Archive);
 
         state.clear();
 
@@ -156,5 +175,6 @@ mod tests {
         assert!(state.rejected_steer_history_records.is_empty());
         assert!(state.pending_steers.is_empty());
         assert!(!state.submit_pending_steers_after_interrupt);
+        assert_eq!(state.session_exit_after_turn, None);
     }
 }

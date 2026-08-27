@@ -185,61 +185,10 @@ impl ChatWidget {
                 self.show_session_checkout_picker(ManagedWorktreeMode::New, /*name*/ None);
             }
             SlashCommand::Archive => {
-                self.bottom_pane.show_selection_view(SelectionViewParams {
-                    title: Some("Archive this session?".to_string()),
-                    subtitle: Some(
-                        "Are you sure? This will archive the current session and exit Codex"
-                            .to_string(),
-                    ),
-                    footer_hint: Some(standard_popup_hint_line()),
-                    items: vec![
-                        SelectionItem {
-                            name: "No, don't archive".to_string(),
-                            description: Some("Return to the current session".to_string()),
-                            dismiss_on_select: true,
-                            ..Default::default()
-                        },
-                        SelectionItem {
-                            name: "Yes, archive and exit".to_string(),
-                            description: Some("Archive this session now".to_string()),
-                            actions: vec![Box::new(|tx| {
-                                tx.send(AppEvent::ArchiveCurrentThread);
-                            })],
-                            dismiss_on_select: true,
-                            ..Default::default()
-                        },
-                    ],
-                    ..Default::default()
-                });
-                self.request_redraw();
+                self.app_event_tx.send(AppEvent::ArchiveCurrentThread);
             }
             SlashCommand::Delete => {
-                self.bottom_pane.show_selection_view(SelectionViewParams {
-                    title: Some("Delete this session?".to_string()),
-                    subtitle: Some(
-                        "Cannot be undone. Subagent threads will also be deleted.".to_string(),
-                    ),
-                    footer_hint: Some(standard_popup_hint_line()),
-                    items: vec![
-                        SelectionItem {
-                            name: "No, keep this session".to_string(),
-                            description: Some("Return to the current session".to_string()),
-                            dismiss_on_select: true,
-                            ..Default::default()
-                        },
-                        SelectionItem {
-                            name: "Yes, delete and exit".to_string(),
-                            description: Some("Permanently delete this session now".to_string()),
-                            actions: vec![Box::new(|tx| {
-                                tx.send(AppEvent::DeleteCurrentThread);
-                            })],
-                            dismiss_on_select: true,
-                            ..Default::default()
-                        },
-                    ],
-                    ..Default::default()
-                });
-                self.request_redraw();
+                self.app_event_tx.send(AppEvent::DeleteCurrentThread);
             }
             SlashCommand::Clear => {
                 self.app_event_tx.send(AppEvent::ClearUi { name: None });
@@ -801,6 +750,36 @@ impl ChatWidget {
                     return;
                 };
                 self.app_event_tx.set_thread_name(name);
+            }
+            SlashCommand::Archive if !trimmed.is_empty() => {
+                let user_message = self.prepared_inline_user_message(
+                    args,
+                    text_elements,
+                    local_images,
+                    remote_image_urls,
+                    mention_bindings,
+                    source,
+                );
+                self.queue_user_message_with_options(
+                    user_message,
+                    QueuedInputAction::ArchiveAfterReply,
+                    pending_pastes,
+                );
+            }
+            SlashCommand::Delete if !trimmed.is_empty() => {
+                let user_message = self.prepared_inline_user_message(
+                    args,
+                    text_elements,
+                    local_images,
+                    remote_image_urls,
+                    mention_bindings,
+                    source,
+                );
+                self.queue_user_message_with_options(
+                    user_message,
+                    QueuedInputAction::DeleteAfterReply,
+                    pending_pastes,
+                );
             }
             SlashCommand::New if !trimmed.is_empty() => {
                 self.show_session_checkout_picker(

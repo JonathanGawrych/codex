@@ -4,6 +4,7 @@
 //! effects around taking composer input, submitting user turns, draining queued
 //! follow-ups, and restoring draft state across interrupts or thread switches.
 
+use super::input_queue::SessionExitAfterTurn;
 use super::*;
 
 impl ChatWidget {
@@ -27,6 +28,14 @@ impl ChatWidget {
                     && user_message.local_images.is_empty()
                     && user_message.remote_image_urls.is_empty()
                 {
+                    return;
+                }
+                if let Some(session_exit) = self.input_queue.session_exit_after_turn {
+                    self.restore_message_while_session_exit_pending(
+                        user_message,
+                        Vec::new(),
+                        session_exit,
+                    );
                     return;
                 }
                 let should_submit_now = self.is_session_configured()
@@ -60,6 +69,14 @@ impl ChatWidget {
                 pending_pastes,
             } => {
                 let user_message = self.user_message_from_submission(text, text_elements);
+                if let Some(session_exit) = self.input_queue.session_exit_after_turn {
+                    self.restore_message_while_session_exit_pending(
+                        user_message,
+                        pending_pastes,
+                        session_exit,
+                    );
+                    return;
+                }
                 self.queue_user_message_with_options(user_message, action, pending_pastes);
             }
             InputResult::Command(cmd) => {
@@ -79,6 +96,20 @@ impl ChatWidget {
         if had_modal_or_popup && self.bottom_pane.no_modal_or_popup_active() {
             self.maybe_send_next_queued_input();
         }
+    }
+
+    fn restore_message_while_session_exit_pending(
+        &mut self,
+        user_message: UserMessage,
+        pending_pastes: Vec<(String, String)>,
+        session_exit: SessionExitAfterTurn,
+    ) {
+        self.restore_user_message_to_composer(user_message);
+        self.bottom_pane.set_composer_pending_pastes(pending_pastes);
+        let command = session_exit.command();
+        self.add_error_message(format!(
+            "'{command}' is waiting for the current response to finish. Additional input was restored to the composer."
+        ));
     }
 
     pub(super) fn defer_input_until_settings_applied(&mut self) {
@@ -222,11 +253,52 @@ impl ChatWidget {
                         break;
                     }
                 }
+                QueuedInputAction::ArchiveAfterReply => {
+                    submitted_follow_up = self
+                        .submit_session_exit_message(queued_message, SessionExitAfterTurn::Archive);
+                    break;
+                }
+                QueuedInputAction::DeleteAfterReply => {
+                    submitted_follow_up = self
+                        .submit_session_exit_message(queued_message, SessionExitAfterTurn::Delete);
+                    break;
+                }
             }
         }
         // Update the list to reflect the remaining queued messages (if any).
         self.refresh_pending_input_preview();
         submitted_follow_up
+    }
+
+    fn submit_session_exit_message(
+        &mut self,
+        queued_message: QueuedUserMessage,
+        session_exit: SessionExitAfterTurn,
+    ) -> bool {
+        let QueuedUserMessage {
+            mut user_message,
+            pending_pastes,
+            ..
+        } = queued_message;
+        if !pending_pastes.is_empty() {
+            (user_message.text, user_message.text_elements) =
+                crate::bottom_pane::ChatComposer::expand_pending_pastes(
+                    &user_message.text,
+                    user_message.text_elements,
+                    &pending_pastes,
+                );
+        }
+        self.reasoning_buffer.clear();
+        self.reasoning_header = None;
+        self.reasoning_summary_parts.clear();
+        self.set_status_header(String::from("Working"));
+        let submitted = self
+            .submit_user_message_with_shell_escape_policy(user_message, ShellEscapePolicy::Disallow)
+            .is_some();
+        if submitted {
+            self.input_queue.session_exit_after_turn = Some(session_exit);
+        }
+        submitted
     }
 
     pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
