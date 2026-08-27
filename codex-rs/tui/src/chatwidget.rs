@@ -419,6 +419,7 @@ mod service_tiers;
 mod settings;
 mod settings_popups;
 mod side;
+mod source_update;
 use self::safety_buffering::SafetyBufferingState;
 mod status_state;
 mod windows_sandbox_prompts;

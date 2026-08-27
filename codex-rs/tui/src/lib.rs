@@ -194,6 +194,7 @@ mod session_start;
 mod session_state;
 mod skills_helpers;
 mod slash_command;
+mod source_update;
 mod startup_draft;
 mod startup_error;
 mod startup_hooks_review;
@@ -222,6 +223,7 @@ mod ui_consts;
 mod unarchive_prompt;
 pub(crate) mod update_action;
 mod worktree_startup;
+pub use source_update::complete_source_update;
 pub use update_action::UpdateAction;
 #[cfg(not(debug_assertions))]
 pub use update_action::get_update_action;

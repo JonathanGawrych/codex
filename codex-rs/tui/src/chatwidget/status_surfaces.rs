@@ -328,7 +328,11 @@ impl ChatWidget {
             model: StatusLineModel {
                 id: self.current_model().to_string(),
                 display_name: self.model_display_name().to_string(),
+                reasoning_effort: self
+                    .effective_reasoning_effort()
+                    .map(|effort| effort.as_str().to_string()),
             },
+            service_tier: self.current_service_tier().map(str::to_string),
             profile: self
                 .config
                 .config_layer_stack

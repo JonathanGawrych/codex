@@ -529,8 +529,8 @@ pub(crate) enum AppEvent {
     /// background tasks, rollout flush, or child process cleanup).
     Exit(ExitMode),
 
-    /// Exit cleanly, then run the updater selected for this installation.
-    StartUpdate,
+    /// Exit cleanly, then restart this source-built executable and resume the active thread.
+    RestartAfterUpdate,
 
     /// Apply a choice from the running-task exit menu to its originating thread.
     RunningTaskExit {

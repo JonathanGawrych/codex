@@ -203,6 +203,10 @@ impl ChatWidget {
         }
         self.request_redraw();
 
+        if !from_replay && self.maybe_restart_after_source_update() {
+            return;
+        }
+
         if !from_replay && let Some(session_exit) = self.input_queue.session_exit_after_turn.take()
         {
             if notification_response.is_empty() {

@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Args;
 use clap::CommandFactory;
 use clap::Parser;
@@ -111,6 +112,9 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::user_input::UserInput;
 use codex_terminal_detection::TerminalName;
 
+const INTERNAL_RESTART_SESSION_ID_ENV: &str = "CODEX_INTERNAL_RESTART_SESSION_ID";
+const INTERNAL_RESTART_PROCESS_ID_ENV: &str = "CODEX_INTERNAL_RESTART_PROCESS_ID";
+
 /// Codex CLI
 ///
 /// If no subcommand is specified, options will be forwarded to the interactive CLI.
@@ -182,6 +186,10 @@ enum Subcommand {
 
     /// Update Codex to the latest version.
     Update,
+
+    /// Mark an in-session source update complete.
+    #[clap(name = "source-update-complete", hide = true)]
+    SourceUpdateComplete(SourceUpdateCompleteCommand),
 
     /// Diagnose local Codex installation, config, auth, and runtime health.
     Doctor(DoctorCommand),
@@ -851,6 +859,12 @@ struct GenerateInternalJsonSchemaCommand {
     out_dir: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct SourceUpdateCompleteCommand {
+    #[arg(value_name = "THREAD_ID")]
+    thread_id: String,
+}
+
 #[derive(Debug, Parser)]
 struct StdioToUdsCommand {
     /// Path to the Unix domain socket to connect to.
@@ -877,6 +891,14 @@ fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
     };
 
     let update_action = exit_info.update_action;
+    if update_action == Some(UpdateAction::SourceCheckout) {
+        let thread_id = exit_info
+            .thread_id
+            .context("the updated Codex process cannot restart without an active thread ID")?;
+        println!("Restarting Codex with the updated binary...");
+        std::io::stdout().flush()?;
+        return restart_current_executable(thread_id);
+    }
     let color_enabled = supports_color::on(Stream::Stdout).is_some();
     for line in exit_info.format_exit_messages(color_enabled) {
         println!("{line}");
@@ -893,6 +915,11 @@ fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
 
 /// Run the update action and print the result.
 fn run_update_action(action: UpdateAction) -> anyhow::Result<()> {
+    if action == UpdateAction::SourceCheckout {
+        anyhow::bail!(
+            "Source checkout updates run through the repository-local $update-codex skill."
+        );
+    }
     println!();
     let cmd_str = action.command_str();
     println!("Updating Codex via `{cmd_str}`...");
@@ -973,8 +1000,77 @@ fn run_update_command() -> anyhow::Result<()> {
                 "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
             );
         };
+        if action == UpdateAction::SourceCheckout {
+            anyhow::bail!(
+                "Source checkout updates run through the repository-local $update-codex skill."
+            );
+        }
         run_update_action(action)
     }
+}
+
+#[cfg(unix)]
+fn restart_current_executable(thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
+    use std::os::unix::process::CommandExt;
+
+    let current_executable = std::env::current_exe()
+        .context("failed to resolve the current Codex executable for restart")?;
+    let mut command = std::process::Command::new(&current_executable);
+    command
+        .args(std::env::args_os().skip(1))
+        .env(INTERNAL_RESTART_SESSION_ID_ENV, thread_id.to_string())
+        .env(
+            INTERNAL_RESTART_PROCESS_ID_ENV,
+            std::process::id().to_string(),
+        );
+    let error = command.exec();
+    Err(anyhow::Error::new(error).context(format!(
+        "failed to restart {}",
+        current_executable.display()
+    )))
+}
+
+#[cfg(not(unix))]
+fn restart_current_executable(_thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
+    anyhow::bail!("automatic restart after a source checkout update is only supported on Unix")
+}
+
+fn internal_restart_session_id() -> anyhow::Result<Option<String>> {
+    let Some(expected_process_id) = std::env::var_os(INTERNAL_RESTART_PROCESS_ID_ENV) else {
+        return Ok(None);
+    };
+    let expected_process_id = expected_process_id
+        .to_str()
+        .context("the internal restart process ID is not valid UTF-8")?
+        .parse::<u32>()
+        .context("the internal restart process ID is not a valid integer")?;
+    if expected_process_id != std::process::id() {
+        return Ok(None);
+    }
+
+    let session_id = std::env::var(INTERNAL_RESTART_SESSION_ID_ENV)
+        .context("the internal restart session ID is not set")?;
+    codex_protocol::ThreadId::from_string(&session_id)
+        .context("the internal restart session ID is not a UUID")?;
+    Ok(Some(session_id))
+}
+
+fn apply_internal_restart(interactive: &mut TuiCli, session_id: Option<&str>) {
+    let Some(session_id) = session_id else {
+        return;
+    };
+    interactive.prompt = None;
+    interactive.images.clear();
+    interactive.resume_picker = false;
+    interactive.resume_last = false;
+    interactive.resume_session_id = Some(session_id.to_string());
+    interactive.resume_show_all = false;
+    interactive.resume_include_non_interactive = false;
+    interactive.agents_overview = false;
+    interactive.fork_picker = false;
+    interactive.fork_last = false;
+    interactive.fork_session_id = None;
+    interactive.fork_show_all = false;
 }
 
 fn run_execpolicycheck(cmd: ExecPolicyCheckCommand) -> anyhow::Result<()> {
@@ -1169,7 +1265,9 @@ async fn cli_main(
         profile_v2_for_subcommand(&interactive, subcommand)?;
     }
 
-    let open_agents_overview = matches!(&subcommand, Some(Subcommand::Agents(_)));
+    let internal_restart_session_id = internal_restart_session_id()?;
+    let open_agents_overview =
+        matches!(&subcommand, Some(Subcommand::Agents(_))) && internal_restart_session_id.is_none();
     match subcommand {
         None | Some(Subcommand::Agents(_)) => {
             prepend_config_flags(
@@ -1214,6 +1312,7 @@ async fn cli_main(
                 }
                 interactive.agents_overview = true;
             }
+            apply_internal_restart(&mut interactive, internal_restart_session_id.as_deref());
             let exit_info = run_interactive_tui(
                 interactive,
                 root_remote.clone(),
@@ -1480,6 +1579,7 @@ async fn cli_main(
                 include_non_interactive,
                 config_overrides,
             );
+            apply_internal_restart(&mut interactive, internal_restart_session_id.as_deref());
             let exit_info = run_interactive_tui(
                 interactive,
                 remote.remote.or(root_remote.clone()),
@@ -1567,6 +1667,7 @@ async fn cli_main(
                 all,
                 config_overrides,
             );
+            apply_internal_restart(&mut interactive, internal_restart_session_id.as_deref());
             let exit_info = run_interactive_tui(
                 interactive,
                 remote.remote.or(root_remote.clone()),
@@ -1649,6 +1750,10 @@ async fn cli_main(
                 "update",
             )?;
             run_update_command()?;
+        }
+        Some(Subcommand::SourceUpdateComplete(command)) => {
+            codex_tui::complete_source_update(&command.thread_id)?;
+            println!("Codex source update is complete. The running TUI will restart now.");
         }
         Some(Subcommand::Doctor(doctor_cli)) => {
             reject_remote_mode_for_subcommand(
@@ -2566,6 +2671,7 @@ fn unsupported_subcommand_name_for_strict_config(
         Some(Subcommand::Logout(_)) => Some("logout"),
         Some(Subcommand::Completion(_)) => Some("completion"),
         Some(Subcommand::Update) => Some("update"),
+        Some(Subcommand::SourceUpdateComplete(_)) => Some("source-update-complete"),
         Some(Subcommand::Cloud(_)) => Some("cloud"),
         Some(Subcommand::Sandbox(_)) => Some("sandbox"),
         Some(Subcommand::Debug(_)) => Some("debug"),
@@ -3759,6 +3865,43 @@ mod tests {
     fn update_parses_as_update_subcommand() {
         let cli = MultitoolCli::try_parse_from(["codex", "update"]).expect("parse");
         assert!(matches!(cli.subcommand, Some(Subcommand::Update)));
+    }
+
+    #[test]
+    fn source_update_completion_parses_the_thread_id() {
+        let cli = MultitoolCli::try_parse_from([
+            "codex",
+            "source-update-complete",
+            "00000000-0000-0000-0000-000000000000",
+        ])
+        .expect("parse");
+
+        let Some(Subcommand::SourceUpdateComplete(command)) = cli.subcommand else {
+            panic!("expected source update completion command");
+        };
+        assert_eq!(command.thread_id, "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn internal_restart_resumes_the_active_thread_without_reusing_initial_input() {
+        let mut interactive = TuiCli::parse_from(["codex", "initial prompt"]);
+        interactive.resume_picker = true;
+        interactive.fork_last = true;
+        interactive.fork_session_id = Some("old-session".to_string());
+
+        apply_internal_restart(
+            &mut interactive,
+            Some("00000000-0000-0000-0000-000000000001"),
+        );
+
+        assert_eq!(interactive.prompt, None);
+        assert_eq!(
+            interactive.resume_session_id.as_deref(),
+            Some("00000000-0000-0000-0000-000000000001")
+        );
+        assert!(!interactive.resume_picker);
+        assert!(!interactive.fork_last);
+        assert_eq!(interactive.fork_session_id, None);
     }
 
     #[test]

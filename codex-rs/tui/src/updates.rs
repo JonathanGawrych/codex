@@ -30,11 +30,11 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
         return None;
     }
 
-    let action = update_action::get_update_action();
-    if action == Some(UpdateAction::SourceCheckout) {
-        refresh_source_checkout_if_stale(config, action);
+    if let Some(checkout_root) = update_action::source_checkout_root() {
+        refresh_source_checkout_if_stale(config, checkout_root);
         return None;
     }
+    let action = update_action::get_update_action();
     if is_source_build_version(CODEX_CLI_VERSION) {
         return None;
     }
@@ -143,10 +143,7 @@ async fn check_for_update(
 
 const SOURCE_UPDATE_CACHE_FILENAME: &str = "source-update.json";
 
-fn refresh_source_checkout_if_stale(config: &Config, action: Option<UpdateAction>) {
-    let Some(checkout_root) = action.and_then(UpdateAction::source_checkout_root) else {
-        return;
-    };
+fn refresh_source_checkout_if_stale(config: &Config, checkout_root: &Path) {
     let cache_file = config
         .codex_home
         .join(SOURCE_UPDATE_CACHE_FILENAME)

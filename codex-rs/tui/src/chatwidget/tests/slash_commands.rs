@@ -1878,12 +1878,29 @@ async fn slash_logout_requests_app_server_logout() {
 }
 
 #[tokio::test]
-async fn slash_update_requests_clean_exit_and_update() {
+async fn thread_scoped_source_update_completion_requests_restart() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let checkout = tempfile::tempdir().expect("temp checkout");
+    let thread_id = ThreadId::new();
+    let marker_path = checkout
+        .path()
+        .join("codex-rs/target/codex-source-update")
+        .join(format!("{thread_id}.ready"));
+    std::fs::create_dir_all(marker_path.parent().expect("marker parent"))
+        .expect("create marker directory");
+    std::fs::write(&marker_path, format!("{thread_id}\n")).expect("write marker");
+    chat.thread_id = Some(thread_id);
 
-    chat.dispatch_command(SlashCommand::Update);
+    assert!(chat.maybe_restart_after_source_update_in(checkout.path()));
 
-    assert_matches!(rx.try_recv(), Ok(AppEvent::StartUpdate));
+    let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AppEvent::RestartAfterUpdate)),
+        "expected restart event, got {events:?}"
+    );
+    assert!(!marker_path.exists());
 }
 
 #[tokio::test]

@@ -19,6 +19,7 @@ pub(crate) struct StatusLineCommandPayload {
     pub(crate) cwd: String,
     pub(crate) workspace: StatusLineWorkspace,
     pub(crate) model: StatusLineModel,
+    pub(crate) service_tier: Option<String>,
     pub(crate) profile: Option<String>,
     pub(crate) personality: Option<StatusLinePersonality>,
     pub(crate) context_window: StatusLineContextWindow,
@@ -41,6 +42,7 @@ pub(crate) struct StatusLineWorkspace {
 pub(crate) struct StatusLineModel {
     pub(crate) id: String,
     pub(crate) display_name: String,
+    pub(crate) reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,7 +192,9 @@ mod tests {
             model: StatusLineModel {
                 id: "gpt-5.6-sol".to_string(),
                 display_name: "gpt-5.6-sol".to_string(),
+                reasoning_effort: Some("xhigh".to_string()),
             },
+            service_tier: Some("fast".to_string()),
             profile: Some("tibbit".to_string()),
             personality: Some(StatusLinePersonality {
                 id: "pragmatic".to_string(),
@@ -231,8 +235,10 @@ mod tests {
           },
           "model": {
             "id": "gpt-5.6-sol",
-            "display_name": "gpt-5.6-sol"
+            "display_name": "gpt-5.6-sol",
+            "reasoning_effort": "xhigh"
           },
+          "service_tier": "fast",
           "profile": "tibbit",
           "personality": {
             "id": "pragmatic",

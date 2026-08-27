@@ -4,7 +4,6 @@ use codex_install_context::InstallContext;
 use codex_install_context::InstallMethod;
 #[cfg(any(not(debug_assertions), test))]
 use codex_install_context::StandalonePlatform;
-#[cfg(any(not(debug_assertions), test))]
 use std::path::Path;
 
 /// Update action the CLI should perform after the TUI exits.
@@ -24,7 +23,7 @@ pub enum UpdateAction {
     StandaloneUnix,
     /// Update via `$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex`.
     StandaloneWindows,
-    /// Fetch, rebase, and rebuild the Cargo source checkout that produced this binary.
+    /// Restart after an in-session update of the Cargo source checkout.
     SourceCheckout,
 }
 
@@ -69,28 +68,7 @@ impl UpdateAction {
                     "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex",
                 ],
             ),
-            UpdateAction::SourceCheckout => (
-                "bash",
-                &[concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../../scripts/codex-self-update.sh"
-                )],
-            ),
-        }
-    }
-
-    #[cfg(not(debug_assertions))]
-    pub(crate) fn source_checkout_root(self) -> Option<&'static Path> {
-        match self {
-            UpdateAction::SourceCheckout => {
-                Some(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../..")))
-            }
-            UpdateAction::NpmGlobalLatest
-            | UpdateAction::BunGlobalLatest
-            | UpdateAction::PnpmGlobalLatest
-            | UpdateAction::BrewUpgrade
-            | UpdateAction::StandaloneUnix
-            | UpdateAction::StandaloneWindows => None,
+            UpdateAction::SourceCheckout => ("codex", &["update"]),
         }
     }
 
@@ -104,23 +82,22 @@ impl UpdateAction {
 
 #[cfg(not(debug_assertions))]
 pub fn get_update_action() -> Option<UpdateAction> {
-    #[cfg(unix)]
-    if let Some(action) = source_checkout_update_action() {
-        return Some(action);
+    if source_checkout_root().is_some() {
+        return Some(UpdateAction::SourceCheckout);
     }
     UpdateAction::from_install_context(InstallContext::current())
 }
 
-#[cfg(all(not(debug_assertions), unix))]
-fn source_checkout_update_action() -> Option<UpdateAction> {
+pub(crate) fn source_checkout_root() -> Option<&'static Path> {
+    let checkout_root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     let current_exe = std::env::current_exe().ok()?;
     source_checkout_update_action_for_executable(
         &current_exe,
         Path::new(env!("CARGO_MANIFEST_DIR")),
-    )
+    )?;
+    Some(checkout_root)
 }
 
-#[cfg(any(all(not(debug_assertions), unix), test))]
 fn source_checkout_update_action_for_executable(
     current_exe: &Path,
     manifest_dir: &Path,
@@ -250,14 +227,5 @@ mod tests {
             source_checkout_update_action_for_executable(&executable, &manifest_dir),
             Some(UpdateAction::SourceCheckout)
         );
-    }
-
-    #[test]
-    fn source_checkout_update_command_uses_the_checkout_script() {
-        let (command, args) = UpdateAction::SourceCheckout.command_args();
-
-        assert_eq!(command, "bash");
-        assert_eq!(args.len(), 1);
-        assert!(args[0].ends_with("/scripts/codex-self-update.sh"));
     }
 }

@@ -8,6 +8,8 @@ REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 DIR=$(jq -r '.workspace.current_dir // "~"' <<< "$input")
 DIR_NAME=$(basename "$DIR")
 MODEL=$(jq -r '.model.display_name // "?"' <<< "$input")
+EFFORT=$(jq -r '.model.reasoning_effort // empty' <<< "$input")
+SERVICE_TIER=$(jq -r '.service_tier // empty' <<< "$input")
 PROFILE=$(jq -r '.profile // empty' <<< "$input")
 PERSONALITY=$(jq -r 'if .personality.id == "none" then empty else .personality.display_name // empty end' <<< "$input")
 PCT=$(jq -r '.context_window.used_percentage // 0' <<< "$input" | cut -d. -f1)
@@ -173,6 +175,12 @@ printf "%b%s\$ %bctx: %b%s %s%%%b" "$CYAN" "$DIR_NAME" "$GRAY" "$BAR_COLOR" "$BA
 rate_segment "5h" "$RATE_5H" "$RESET_5H" 18000
 rate_segment "7d" "$RATE_7D" "$RESET_7D" 604800
 printf "%b | %s" "$GRAY" "$MODEL"
+if [[ -n "$EFFORT" ]]; then
+  printf " %s" "$EFFORT"
+fi
+if [[ "$SERVICE_TIER" == "fast" ]]; then
+  printf " fast"
+fi
 if [[ -n "$PROFILE" ]]; then
   printf " · %s" "$PROFILE"
 elif [[ -n "$PERSONALITY" ]]; then

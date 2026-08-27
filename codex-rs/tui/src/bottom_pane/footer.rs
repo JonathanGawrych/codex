@@ -168,6 +168,7 @@ impl CollaborationModeIndicator {
 }
 
 impl PermissionModeIndicator {
+    #[allow(clippy::disallowed_methods)]
     pub(crate) fn line(self, show_cycle_hint: bool) -> Line<'static> {
         let (icon, label) = match self {
             PermissionModeIndicator::Auto => ("▸▸", "auto mode on"),
