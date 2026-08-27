@@ -684,6 +684,23 @@ impl App {
                 }
                 return Ok(self.handle_exit_mode(app_server, mode).await);
             }
+            AppEvent::StartUpdate => {
+                #[cfg(not(debug_assertions))]
+                if let Some(action) = crate::update_action::get_update_action() {
+                    self.pending_update_action = Some(action);
+                    self.app_event_tx
+                        .send(AppEvent::Exit(ExitMode::ShutdownFirst));
+                } else {
+                    self.chat_widget.add_error_message(
+                        "Could not detect how this Codex installation should be updated."
+                            .to_string(),
+                    );
+                }
+                #[cfg(debug_assertions)]
+                self.chat_widget.add_error_message(
+                    "The updater is only available in release builds.".to_string(),
+                );
+            }
             AppEvent::RunningTaskExit { action, thread_id } => match action {
                 RunningTaskExitAction::RunInBackground => {
                     return Ok(self.handle_exit_mode(app_server, ExitMode::Immediate).await);

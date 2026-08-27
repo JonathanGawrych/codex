@@ -2,6 +2,9 @@
 
 input=$(cat)
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
 DIR=$(jq -r '.workspace.current_dir // "~"' <<< "$input")
 DIR_NAME=$(basename "$DIR")
 MODEL=$(jq -r '.model.display_name // "?"' <<< "$input")
@@ -13,6 +16,10 @@ RATE_7D=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<< "$input" |
 RESET_5H=$(jq -r '.rate_limits.five_hour.resets_at // empty' <<< "$input" | cut -d. -f1)
 RESET_7D=$(jq -r '.rate_limits.seven_day.resets_at // empty' <<< "$input" | cut -d. -f1)
 NOW=$(date +%s)
+UPDATE_COMMITS=0
+if git -C "$REPO_ROOT" rev-parse --verify --quiet origin/main >/dev/null; then
+  UPDATE_COMMITS=$(git -C "$REPO_ROOT" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+fi
 
 fmt_remaining() {
   local diff=$(( $1 - NOW ))
@@ -47,6 +54,7 @@ CYAN='\033[36m'
 WHITE='\033[37m'
 RESET='\033[0m'
 GRAY='\033[38;2;153;153;153m'
+UPDATE_COLOR='\033[38;2;255;193;7m'
 
 # Gradient saturation/lightness for the usage colors (HSL). Lightness 55 keeps
 # every hue bright enough to read on a dark terminal.
@@ -169,5 +177,8 @@ if [[ -n "$PROFILE" ]]; then
   printf " · %s" "$PROFILE"
 elif [[ -n "$PERSONALITY" ]]; then
   printf " · %s" "$PERSONALITY"
+fi
+if (( UPDATE_COMMITS > 0 )); then
+  printf " %b| Update available%b" "$UPDATE_COLOR" "$GRAY"
 fi
 printf "%b\n" "$RESET"

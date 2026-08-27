@@ -4,6 +4,8 @@ use codex_install_context::InstallContext;
 use codex_install_context::InstallMethod;
 #[cfg(any(not(debug_assertions), test))]
 use codex_install_context::StandalonePlatform;
+#[cfg(any(not(debug_assertions), test))]
+use std::path::Path;
 
 /// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +24,8 @@ pub enum UpdateAction {
     StandaloneUnix,
     /// Update via `$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex`.
     StandaloneWindows,
+    /// Fetch, rebase, and rebuild the Cargo source checkout that produced this binary.
+    SourceCheckout,
 }
 
 impl UpdateAction {
@@ -65,6 +69,28 @@ impl UpdateAction {
                     "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex",
                 ],
             ),
+            UpdateAction::SourceCheckout => (
+                "bash",
+                &[concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../scripts/codex-self-update.sh"
+                )],
+            ),
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn source_checkout_root(self) -> Option<&'static Path> {
+        match self {
+            UpdateAction::SourceCheckout => {
+                Some(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../..")))
+            }
+            UpdateAction::NpmGlobalLatest
+            | UpdateAction::BunGlobalLatest
+            | UpdateAction::PnpmGlobalLatest
+            | UpdateAction::BrewUpgrade
+            | UpdateAction::StandaloneUnix
+            | UpdateAction::StandaloneWindows => None,
         }
     }
 
@@ -78,7 +104,37 @@ impl UpdateAction {
 
 #[cfg(not(debug_assertions))]
 pub fn get_update_action() -> Option<UpdateAction> {
+    #[cfg(unix)]
+    if let Some(action) = source_checkout_update_action() {
+        return Some(action);
+    }
     UpdateAction::from_install_context(InstallContext::current())
+}
+
+#[cfg(all(not(debug_assertions), unix))]
+fn source_checkout_update_action() -> Option<UpdateAction> {
+    let current_exe = std::env::current_exe().ok()?;
+    source_checkout_update_action_for_executable(
+        &current_exe,
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+#[cfg(any(all(not(debug_assertions), unix), test))]
+fn source_checkout_update_action_for_executable(
+    current_exe: &Path,
+    manifest_dir: &Path,
+) -> Option<UpdateAction> {
+    let checkout_root = manifest_dir.parent()?.parent()?;
+    if !checkout_root.join(".git").exists() {
+        return None;
+    }
+
+    let current_exe = current_exe.canonicalize().ok()?;
+    let target_dir = checkout_root.join("codex-rs/target").canonicalize().ok()?;
+    current_exe
+        .starts_with(target_dir)
+        .then_some(UpdateAction::SourceCheckout)
 }
 
 #[cfg(test)]
@@ -176,5 +232,32 @@ mod tests {
                 ][..],
             )
         );
+    }
+
+    #[test]
+    fn source_checkout_is_detected_for_a_target_binary() {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let checkout_root = temp_dir.path();
+        let manifest_dir = checkout_root.join("codex-rs/tui");
+        let target_dir = checkout_root.join("codex-rs/target/release");
+        std::fs::create_dir_all(checkout_root.join(".git")).expect("create git directory");
+        std::fs::create_dir_all(&manifest_dir).expect("create manifest directory");
+        std::fs::create_dir_all(&target_dir).expect("create target directory");
+        let executable = target_dir.join("codex");
+        std::fs::write(&executable, []).expect("create executable");
+
+        assert_eq!(
+            source_checkout_update_action_for_executable(&executable, &manifest_dir),
+            Some(UpdateAction::SourceCheckout)
+        );
+    }
+
+    #[test]
+    fn source_checkout_update_command_uses_the_checkout_script() {
+        let (command, args) = UpdateAction::SourceCheckout.command_args();
+
+        assert_eq!(command, "bash");
+        assert_eq!(args.len(), 1);
+        assert!(args[0].ends_with("/scripts/codex-self-update.sh"));
     }
 }

@@ -19,17 +19,25 @@ use codex_http_client::RouteAwareClientPool;
 use codex_login::default_client::default_headers;
 use serde::Deserialize;
 use std::path::Path;
+use tokio::process::Command;
 
 use crate::version::CODEX_CLI_VERSION;
 
 pub(crate) use crate::updates_cache::dismiss_version;
 
 pub fn get_upgrade_version(config: &Config) -> Option<String> {
-    if !config.check_for_update_on_startup || is_source_build_version(CODEX_CLI_VERSION) {
+    if !config.check_for_update_on_startup {
         return None;
     }
 
     let action = update_action::get_update_action();
+    if action == Some(UpdateAction::SourceCheckout) {
+        refresh_source_checkout_if_stale(config, action);
+        return None;
+    }
+    if is_source_build_version(CODEX_CLI_VERSION) {
+        return None;
+    }
     let version_file = version_filepath(config);
     let info = read_version_info(&version_file).ok();
 
@@ -112,6 +120,9 @@ async fn check_for_update(
         Some(UpdateAction::StandaloneUnix) | Some(UpdateAction::StandaloneWindows) | None => {
             fetch_latest_github_release_version(&client_pool).await?
         }
+        Some(UpdateAction::SourceCheckout) => {
+            fetch_latest_github_release_version(&client_pool).await?
+        }
     };
 
     // Preserve any previously dismissed version if present.
@@ -127,6 +138,76 @@ async fn check_for_update(
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(version_file, json_line).await?;
+    Ok(())
+}
+
+const SOURCE_UPDATE_CACHE_FILENAME: &str = "source-update.json";
+
+fn refresh_source_checkout_if_stale(config: &Config, action: Option<UpdateAction>) {
+    let Some(checkout_root) = action.and_then(UpdateAction::source_checkout_root) else {
+        return;
+    };
+    let cache_file = config
+        .codex_home
+        .join(SOURCE_UPDATE_CACHE_FILENAME)
+        .into_path_buf();
+    let info = read_version_info(&cache_file).ok();
+    if info
+        .as_ref()
+        .is_some_and(|info| info.last_checked_at >= Utc::now() - Duration::hours(20))
+    {
+        return;
+    }
+
+    let checkout_root = checkout_root.to_path_buf();
+    tokio::spawn(async move {
+        refresh_source_checkout(&checkout_root, &cache_file)
+            .await
+            .inspect_err(|error| tracing::error!(%error, "failed to refresh source checkout"))
+    });
+}
+
+async fn refresh_source_checkout(checkout_root: &Path, cache_file: &Path) -> anyhow::Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(checkout_root)
+        .args(["fetch", "--prune", "origin"])
+        .output()
+        .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git fetch failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
+    }
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(checkout_root)
+        .args(["rev-parse", "origin/main"])
+        .output()
+        .await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "git rev-parse origin/main failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        );
+    }
+
+    let info = VersionInfo {
+        latest_version: String::from_utf8(output.stdout)?.trim().to_string(),
+        last_checked_at: Utc::now(),
+        dismissed_version: None,
+    };
+    let json_line = format!("{}\n", serde_json::to_string(&info)?);
+    if let Some(parent) = cache_file.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(cache_file, json_line).await?;
     Ok(())
 }
 

@@ -1878,6 +1878,15 @@ async fn slash_logout_requests_app_server_logout() {
 }
 
 #[tokio::test]
+async fn slash_update_requests_clean_exit_and_update() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+
+    chat.dispatch_command(SlashCommand::Update);
+
+    assert_matches!(rx.try_recv(), Ok(AppEvent::StartUpdate));
+}
+
+#[tokio::test]
 async fn slash_copy_state_tracks_turn_complete_final_reply() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 
