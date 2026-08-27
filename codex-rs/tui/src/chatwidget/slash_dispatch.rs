@@ -399,6 +399,9 @@ impl ChatWidget {
             SlashCommand::Logout => {
                 self.app_event_tx.send(AppEvent::Logout);
             }
+            SlashCommand::Update => {
+                self.app_event_tx.send(AppEvent::StartUpdate);
+            }
             SlashCommand::Copy => {
                 self.show_copy_picker();
             }
@@ -1244,6 +1247,7 @@ impl ChatWidget {
             | SlashCommand::Memories
             | SlashCommand::Quit
             | SlashCommand::Exit
+            | SlashCommand::Update
             | SlashCommand::Logout
             | SlashCommand::Mention
             | SlashCommand::Skills
