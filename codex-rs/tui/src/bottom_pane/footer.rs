@@ -55,8 +55,8 @@ use crate::ui_consts::FOOTER_INDENT_COLS;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Styled;
 use ratatui::style::Color;
+use ratatui::style::Styled;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -182,6 +182,7 @@ impl CollaborationModeIndicator {
 }
 
 impl PermissionModeIndicator {
+    #[allow(clippy::disallowed_methods)]
     pub(crate) fn line(self, show_cycle_hint: bool) -> Line<'static> {
         let (icon, label) = match self {
             PermissionModeIndicator::Auto => ("▸▸", "auto mode on"),
