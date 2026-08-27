@@ -28,6 +28,7 @@ use ratatui::widgets::Widget;
 use crate::bottom_pane::footer::CollaborationModeIndicator;
 use crate::bottom_pane::footer::FooterMode;
 use crate::bottom_pane::footer::GoalStatusIndicator;
+use crate::bottom_pane::footer::PermissionModeIndicator;
 use crate::key_hint::KeyBinding;
 use crate::key_hint::ShortcutHint;
 use crate::style::secondary_text_style;
@@ -102,6 +103,9 @@ impl super::ChatComposer {
         &self,
         mut options: ComposerRenderOptions<'a>,
     ) -> ComposerRenderOptions<'a> {
+        if self.footer.permission_mode_line_enabled {
+            options.separate_status_line = false;
+        }
         options.footer = options.footer.filter(|footer| {
             if (self.popups.active.is_above_composer()
                 && options.command_popup_placement != CommandPopupPlacement::Hidden
@@ -140,8 +144,15 @@ impl super::ChatComposer {
             .footer
             .map_or_else(
                 || {
-                    self.custom_footer_height()
-                        .unwrap_or_else(|| footer_height(&self.hint_footer_props(options), width))
+                    self.custom_footer_height().unwrap_or_else(|| {
+                        let props = self.hint_footer_props(options);
+                        footer_height(&props, width)
+                            + u16::from(
+                                super::uses_passive_footer_status_layout(&props)
+                                    && self.footer.permission_mode_line_enabled
+                                    && self.footer.permission_mode_indicator.is_some(),
+                            )
+                    })
                 },
                 |footer| footer.text.height().try_into().unwrap_or(u16::MAX),
             )
@@ -213,6 +224,8 @@ pub(super) struct FooterState {
     pub(super) context_window_used_tokens: Option<i64>,
     pub(super) context_window_pending: bool,
     pub(super) collaboration_mode_indicator: Option<CollaborationModeIndicator>,
+    pub(super) permission_mode_indicator: Option<PermissionModeIndicator>,
+    pub(super) permission_mode_line_enabled: bool,
     pub(super) goal_status_indicator: Option<GoalStatusIndicator>,
     pub(super) ide_context_active: bool,
     pub(super) status_line_value: Option<Line<'static>>,

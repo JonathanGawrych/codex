@@ -64,6 +64,7 @@ use codex_plugin::PluginCapabilitySummary;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_realtime_webrtc::StartedRealtimeWebrtcSession;
+use ratatui::text::Line;
 
 use crate::history_cell::HistoryCell;
 
@@ -1509,6 +1510,11 @@ pub(crate) enum AppEvent {
     StatusLineWorkspaceHeadlineUpdated {
         request_id: u64,
         result: Result<crate::workspace_messages::WorkspaceHeadlineFetchResult, String>,
+    },
+    /// Result of running the configured status-line command.
+    StatusLineCommandUpdated {
+        request_id: u64,
+        result: Result<Option<Line<'static>>, String>,
     },
     /// Apply a user-confirmed status-line item ordering/selection.
     StatusLineSetup {

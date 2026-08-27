@@ -157,6 +157,7 @@ mod skills_toggle_view;
 pub(crate) mod slash_commands;
 pub(crate) use footer::CollaborationModeIndicator;
 pub(crate) use footer::GoalStatusIndicator;
+pub(crate) use footer::PermissionModeIndicator;
 #[cfg(test)]
 pub(crate) use footer::goal_status_indicator_line;
 pub(crate) use list_selection_view::ColumnWidthMode;
@@ -584,6 +585,16 @@ impl BottomPane {
         indicator: Option<CollaborationModeIndicator>,
     ) {
         self.composer.set_collaboration_mode_indicator(indicator);
+        self.request_redraw();
+    }
+
+    pub fn set_permission_mode_indicator(&mut self, indicator: PermissionModeIndicator) {
+        self.composer.set_permission_mode_indicator(indicator);
+        self.request_redraw();
+    }
+
+    pub fn set_permission_mode_line_enabled(&mut self, enabled: bool) {
+        self.composer.set_permission_mode_line_enabled(enabled);
         self.request_redraw();
     }
 
