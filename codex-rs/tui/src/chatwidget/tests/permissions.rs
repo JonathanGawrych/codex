@@ -3,6 +3,8 @@ use crate::legacy_core::config::PermissionProfileCatalogEntry;
 use crate::permission_discovery::PermissionDiscovery as Discovery;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS;
+use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_READ_ONLY;
+use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use codex_protocol::models::ManagedFileSystemPermissions;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
@@ -219,6 +221,100 @@ async fn approvals_selection_popup_snapshot() {
     });
     #[cfg(not(target_os = "windows"))]
     assert_chatwidget_snapshot!("approvals_selection_popup", popup);
+}
+
+#[tokio::test]
+async fn shift_tab_cycles_claude_style_permission_modes() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.set_feature_enabled(Feature::GuardianApproval, /*enabled*/ true);
+
+    chat.set_approval_policy(AskForApproval::OnRequest);
+    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+        PermissionProfile::workspace_write(),
+        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_WORKSPACE),
+    ))
+    .expect("set workspace permission profile");
+    chat.set_approvals_reviewer(ApprovalsReviewer::AutoReview);
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let event = std::iter::from_fn(|| rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
+        .expect("expected manual mode selection");
+    assert!(matches!(
+        event,
+        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
+            profile_id,
+            approval_policy: Some(AskForApproval::OnRequest),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
+            display_label,
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_READ_ONLY
+            && display_label == "Manual mode"
+    ));
+
+    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+        PermissionProfile::read_only(),
+        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_READ_ONLY),
+    ))
+    .expect("set read-only permission profile");
+    chat.set_approvals_reviewer(ApprovalsReviewer::User);
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let event = std::iter::from_fn(|| rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
+        .expect("expected accept edits selection");
+    assert!(matches!(
+        event,
+        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
+            profile_id,
+            approval_policy: Some(AskForApproval::OnRequest),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
+            display_label,
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_WORKSPACE
+            && display_label == "Accept edits"
+    ));
+
+    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+        PermissionProfile::workspace_write(),
+        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_WORKSPACE),
+    ))
+    .expect("set workspace permission profile");
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let event = std::iter::from_fn(|| rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
+        .expect("expected bypass permissions selection");
+    assert!(matches!(
+        event,
+        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
+            profile_id,
+            approval_policy: Some(AskForApproval::Never),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
+            display_label,
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS
+            && display_label == "Bypass permissions"
+    ));
+
+    chat.set_approval_policy(AskForApproval::Never);
+    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+        PermissionProfile::Disabled,
+        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_DANGER_FULL_ACCESS),
+    ))
+    .expect("set full-access permission profile");
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let event = std::iter::from_fn(|| rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
+        .expect("expected auto mode selection");
+    assert!(matches!(
+        event,
+        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
+            profile_id,
+            approval_policy: Some(AskForApproval::OnRequest),
+            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+            display_label,
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_WORKSPACE
+            && display_label == "Auto mode"
+    ));
 }
 
 #[tokio::test]

@@ -81,8 +81,9 @@ async fn switching_from_ultra_thread_restores_configured_plan_effort() {
         },
         /*resume_restored_queue*/ false,
     );
-    app.chat_widget
-        .handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let plan_mask = crate::collaboration_modes::plan_mask(app.chat_widget.model_catalog().as_ref())
+        .expect("expected plan collaboration mode");
+    app.chat_widget.set_collaboration_mask(plan_mask);
 
     assert_eq!(
         app.chat_widget.active_collaboration_mode_kind(),

@@ -68,6 +68,7 @@ use crate::status::RateLimitWindowDisplay;
 use crate::status::StatusAccountDisplay;
 use crate::status::StatusHistoryHandle;
 use crate::status::format_directory_display;
+use crate::status::format_status_limit_summary;
 use crate::status::format_tokens_compact;
 use crate::status::rate_limit_snapshot_display_for_limit;
 use crate::terminal_hyperlinks::HyperlinkLine;
@@ -735,6 +736,8 @@ pub(crate) struct ChatWidget {
     current_rollout_path: Option<PathBuf>,
     // Current working directory (if known)
     current_cwd: Option<PathBuf>,
+    // Local config directory for command hooks, independent of the server's workspace.
+    status_line_command_cwd: PathBuf,
     // App-server-backed command runner for status-line workspace metadata lookups.
     workspace_command_runner: Option<WorkspaceCommandRunner>,
     // Instruction source files loaded for the current session, supplied by app-server.
@@ -763,6 +766,20 @@ pub(crate) struct ChatWidget {
     pub(crate) terminal_title_next_refresh: Option<Instant>,
     // Cached project-root display name keyed by cwd for status/title rendering.
     status_line_project_root_name_cache: Option<CachedProjectRootName>,
+    // Last non-empty line returned by the configured status-line command.
+    status_line_command_output: Option<Line<'static>>,
+    // Request ID for the status-line command currently in flight.
+    status_line_command_pending_request_id: Option<u64>,
+    // Request ID to assign to the next status-line command run.
+    next_status_line_command_request_id: u64,
+    // Last JSON payload sent to the status-line command.
+    status_line_command_last_payload: Option<String>,
+    // Configuration used for the last status-line command run.
+    status_line_command_last_config: Option<codex_config::types::StatusLineCommandConfig>,
+    // Last time a status-line command run started.
+    status_line_command_last_requested_at: Option<Instant>,
+    // Set after the first status-line command error is shown to the user.
+    status_line_command_error_warned: bool,
     // Cached git branch name for the status line (None if unknown).
     status_line_branch: Option<String>,
     // CWD used to resolve the cached branch; change resets branch state.
@@ -1191,6 +1208,7 @@ impl ChatWidget {
             self.refresh_terminal_title();
         }
         self.refresh_status_line_if_workspace_headline_due();
+        self.refresh_status_line_command_if_due();
         self.refresh_thread_usage_if_settlement_due();
     }
 

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app_event::AppEvent;
+use crate::bottom_pane::PermissionModeIndicator;
 use crate::chatwidget::rate_limits::RATE_LIMIT_SWITCH_PROMPT_VIEW_ID;
 
 impl ChatWidget {
@@ -16,6 +17,7 @@ impl ChatWidget {
             tracing::warn!(%err, "failed to set approval_policy on chat config");
         } else {
             self.refresh_status_surfaces();
+            self.update_permission_mode_indicator();
         }
     }
 
@@ -28,6 +30,7 @@ impl ChatWidget {
             .permissions
             .set_permission_profile_from_session_snapshot(snapshot)?;
         self.refresh_status_surfaces();
+        self.update_permission_mode_indicator();
         Ok(())
     }
 
@@ -45,6 +48,7 @@ impl ChatWidget {
                 ),
             )?;
         self.refresh_status_surfaces();
+        self.update_permission_mode_indicator();
         Ok(())
     }
 
@@ -123,6 +127,51 @@ impl ChatWidget {
     pub(crate) fn set_approvals_reviewer(&mut self, policy: ApprovalsReviewer) {
         self.config.approvals_reviewer = policy;
         self.refresh_status_surfaces();
+        self.update_permission_mode_indicator();
+    }
+
+    pub(super) fn permission_mode_indicator(&self) -> PermissionModeIndicator {
+        let current_approval =
+            AskForApproval::from(self.config.permissions.approval_policy.value());
+        let current_permission_profile = self.config.permissions.permission_profile();
+        let presets = builtin_approval_presets();
+        let preset_matches = |id| {
+            presets
+                .iter()
+                .find(|preset| preset.id == id)
+                .is_some_and(|preset| {
+                    Self::preset_matches_current(
+                        current_approval,
+                        current_permission_profile,
+                        self.config.cwd.as_path(),
+                        preset,
+                    )
+                })
+        };
+
+        if self.config.approvals_reviewer == ApprovalsReviewer::AutoReview && preset_matches("auto")
+        {
+            PermissionModeIndicator::Auto
+        } else if self.config.approvals_reviewer == ApprovalsReviewer::User
+            && preset_matches("read-only")
+        {
+            PermissionModeIndicator::Manual
+        } else if self.config.approvals_reviewer == ApprovalsReviewer::User
+            && preset_matches("auto")
+        {
+            PermissionModeIndicator::AcceptEdits
+        } else if self.config.approvals_reviewer == ApprovalsReviewer::User
+            && preset_matches("full-access")
+        {
+            PermissionModeIndicator::BypassPermissions
+        } else {
+            PermissionModeIndicator::Custom
+        }
+    }
+
+    pub(super) fn update_permission_mode_indicator(&mut self) {
+        self.bottom_pane
+            .set_permission_mode_indicator(self.permission_mode_indicator());
     }
 
     pub(crate) fn set_world_writable_warning_acknowledged(&mut self, acknowledged: bool) {
@@ -183,6 +232,7 @@ impl ChatWidget {
     /// Set the personality in the widget's config copy.
     pub(crate) fn set_personality(&mut self, personality: Personality) {
         self.config.personality = Some(personality);
+        self.refresh_status_line();
     }
 
     pub(crate) fn status_account_display(&self) -> Option<&StatusAccountDisplay> {
@@ -514,6 +564,8 @@ impl ChatWidget {
             }
         }
 
+        self.update_permission_mode_indicator();
+
         settings.collaboration_mode.settings.model = settings.model;
         settings.collaboration_mode.settings.reasoning_effort = settings.effort;
         self.set_effective_collaboration_mode(settings.collaboration_mode);
@@ -652,20 +704,6 @@ impl ChatWidget {
         }
         self.current_goal_status = Some(GoalStatusState::new(goal, Instant::now()));
         self.update_collaboration_mode_indicator();
-    }
-
-    /// Cycle to the next collaboration mode variant (Plan -> Default -> Plan).
-    pub(super) fn cycle_collaboration_mode(&mut self) {
-        if !self.collaboration_modes_enabled() {
-            return;
-        }
-
-        if let Some(next_mask) = collaboration_modes::next_mask(
-            self.model_catalog.as_ref(),
-            self.active_collaboration_mask.as_ref(),
-        ) {
-            self.set_collaboration_mask_from_user_action(next_mask);
-        }
     }
 
     pub(crate) fn set_collaboration_mask_from_user_action(&mut self, mask: CollaborationModeMask) {

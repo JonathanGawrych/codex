@@ -1,0 +1,21 @@
+---
+source: tui/src/bottom_pane/footer.rs
+assertion_line: 1324
+expression: rendered
+---
+Line::from_iter([
+    Span::from("▸▸ auto mode on").fg(Color::Rgb(255, 193, 7)),
+    Span::from(" (shift+tab to cycle)").dim(),
+])
+Line::from_iter([
+    Span::from("Ⅱ manual mode on").fg(Color::Rgb(153, 153, 153)),
+    Span::from(" (shift+tab to cycle)").dim(),
+])
+Line::from_iter([
+    Span::from("▸▸ accept edits on").fg(Color::Rgb(175, 135, 255)),
+    Span::from(" (shift+tab to cycle)").dim(),
+])
+Line::from_iter([
+    Span::from("▸▸ bypass permissions on").fg(Color::Rgb(255, 107, 128)),
+    Span::from(" (shift+tab to cycle)").dim(),
+])

@@ -3635,6 +3635,34 @@
         }
       ]
     },
+    "StatusLineCommandConfig": {
+      "additionalProperties": false,
+      "description": "Command that renders the complete TUI status line from JSON written to stdin.",
+      "properties": {
+        "command": {
+          "description": "Shell command to execute for each status-line refresh.",
+          "type": "string"
+        },
+        "refresh_interval_seconds": {
+          "default": 60,
+          "description": "Time between refreshes so time-dependent output can remain current.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "timeout_ms": {
+          "default": 3000,
+          "description": "Maximum time allowed for the command, including stdin and stdout handling.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
     "ThreadStoreToml": {
       "oneOf": [
         {
@@ -4131,6 +4159,15 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "status_line_command": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/StatusLineCommandConfig"
+            }
+          ],
+          "default": null,
+          "description": "Command that replaces the built-in status line when it returns a non-empty first line."
         },
         "status_line_use_colors": {
           "default": true,

@@ -62,6 +62,7 @@ use codex_config::types::ResumeCwdMode;
 use codex_config::types::SandboxWorkspaceWrite;
 use codex_config::types::SessionPickerViewMode;
 use codex_config::types::SkillsConfig;
+use codex_config::types::StatusLineCommandConfig;
 use codex_config::types::ToolSuggestDisabledTool;
 use codex_config::types::ToolSuggestDiscoverableType;
 use codex_config::types::Tui;
@@ -1266,6 +1267,7 @@ fn config_toml_deserializes_model_availability_nux() {
             alternate_screen: AltScreenMode::default(),
             status_line: None,
             status_line_use_colors: true,
+            status_line_command: None,
             terminal_title: None,
             theme: None,
             pet: None,
@@ -1297,6 +1299,27 @@ status_line_use_colors = false
         !cfg.tui
             .expect("tui config should deserialize")
             .status_line_use_colors
+    );
+}
+
+#[test]
+fn config_toml_deserializes_status_line_command() {
+    let toml = r#"
+[tui.status_line_command]
+command = "~/.codex/statusline.sh"
+"#;
+    let cfg: ConfigToml =
+        toml::from_str(toml).expect("TOML deserialization should accept a status-line command");
+
+    assert_eq!(
+        cfg.tui
+            .expect("tui config should deserialize")
+            .status_line_command,
+        Some(StatusLineCommandConfig {
+            command: "~/.codex/statusline.sh".to_string(),
+            timeout_ms: 3_000,
+            refresh_interval_seconds: 60,
+        })
     );
 }
 
@@ -4281,6 +4304,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             alternate_screen: AltScreenMode::Auto,
             status_line: None,
             status_line_use_colors: true,
+            status_line_command: None,
             terminal_title: None,
             theme: None,
             pet: None,

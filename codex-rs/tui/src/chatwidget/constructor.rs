@@ -113,6 +113,7 @@ impl ChatWidget {
             }),
             transcript: TranscriptState::new(active_cell),
             raw_output_mode: local_settings.tui.raw_output_mode,
+            status_line_command_cwd: config.cwd.to_path_buf(),
             config,
             local_settings,
             effective_service_tier,
@@ -250,6 +251,13 @@ impl ChatWidget {
             terminal_title_animation_origin: Instant::now(),
             terminal_title_next_refresh: None,
             status_line_project_root_name_cache: None,
+            status_line_command_output: None,
+            status_line_command_pending_request_id: None,
+            next_status_line_command_request_id: 0,
+            status_line_command_last_payload: None,
+            status_line_command_last_config: None,
+            status_line_command_last_requested_at: None,
+            status_line_command_error_warned: false,
             status_line_branch: None,
             status_line_branch_cwd: None,
             status_line_branch_pending: false,
@@ -280,9 +288,18 @@ impl ChatWidget {
         } else {
             widget.bottom_pane.set_vim_enabled(/*enabled*/ false);
         }
+        let status_line_command_enabled = widget
+            .local_settings
+            .tui
+            .status_line_command
+            .as_ref()
+            .is_some_and(|config| !config.command.trim().is_empty());
+        widget.bottom_pane.set_status_line_enabled(
+            status_line_command_enabled || !widget.configured_status_line_items().is_empty(),
+        );
         widget
             .bottom_pane
-            .set_status_line_enabled(!widget.configured_status_line_items().is_empty());
+            .set_permission_mode_line_enabled(status_line_command_enabled);
         widget
             .bottom_pane
             .set_collaboration_modes_enabled(/*enabled*/ true);
@@ -303,6 +320,7 @@ impl ChatWidget {
                 WindowsSandboxLevel::RestrictedToken
             ));
         widget.update_collaboration_mode_indicator();
+        widget.update_permission_mode_indicator();
 
         widget
             .bottom_pane

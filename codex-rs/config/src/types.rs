@@ -719,6 +719,30 @@ pub struct ModelAvailabilityNuxConfig {
 /// Fallback resize-reflow row cap when Codex cannot identify a terminal-specific scrollback size.
 pub const DEFAULT_TERMINAL_RESIZE_REFLOW_FALLBACK_MAX_ROWS: usize = 1_000;
 
+const fn default_status_line_command_timeout_ms() -> u64 {
+    3_000
+}
+
+const fn default_status_line_command_refresh_interval_seconds() -> u64 {
+    60
+}
+
+/// Command that renders the complete TUI status line from JSON written to stdin.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct StatusLineCommandConfig {
+    /// Shell command to execute for each status-line refresh.
+    pub command: String,
+
+    /// Maximum time allowed for the command, including stdin and stdout handling.
+    #[serde(default = "default_status_line_command_timeout_ms")]
+    pub timeout_ms: u64,
+
+    /// Time between refreshes so time-dependent output can remain current.
+    #[serde(default = "default_status_line_command_refresh_interval_seconds")]
+    pub refresh_interval_seconds: u64,
+}
+
 /// Collection of settings that are specific to the TUI.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
 #[schemars(deny_unknown_fields)]
@@ -785,6 +809,10 @@ pub struct Tui {
     /// Defaults to `true`.
     #[serde(default = "default_true")]
     pub status_line_use_colors: bool,
+
+    /// Command that replaces the built-in status line when it returns a non-empty first line.
+    #[serde(default)]
+    pub status_line_command: Option<StatusLineCommandConfig>,
 
     /// Ordered list of terminal title item identifiers.
     ///

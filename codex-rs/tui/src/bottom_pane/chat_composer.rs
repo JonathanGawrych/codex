@@ -252,6 +252,7 @@ use super::footer::FooterKeyHints;
 use super::footer::FooterMode;
 use super::footer::FooterProps;
 use super::footer::GoalStatusIndicator;
+use super::footer::PermissionModeIndicator;
 use super::footer::SummaryLeft;
 use super::footer::can_show_left_with_context;
 use super::footer::context_window_line;
@@ -665,6 +666,8 @@ impl ChatComposer {
                 context_window_used_tokens: None,
                 context_window_pending: false,
                 collaboration_mode_indicator: None,
+                permission_mode_indicator: None,
+                permission_mode_line_enabled: false,
                 goal_status_indicator: None,
                 ide_context_active: false,
                 status_line_value: None,
@@ -987,6 +990,14 @@ impl ChatComposer {
         self.footer.collaboration_mode_indicator = indicator;
     }
 
+    pub fn set_permission_mode_indicator(&mut self, indicator: PermissionModeIndicator) {
+        self.footer.permission_mode_indicator = Some(indicator);
+    }
+
+    pub fn set_permission_mode_line_enabled(&mut self, enabled: bool) {
+        self.footer.permission_mode_line_enabled = enabled;
+    }
+
     pub fn set_goal_status_indicator(&mut self, indicator: Option<GoalStatusIndicator>) {
         self.footer.goal_status_indicator = indicator;
     }
@@ -1032,9 +1043,7 @@ impl ChatComposer {
         textarea_right_reserve: u16,
     ) -> [Rect; 4] {
         let footer_props = self.footer_props();
-        let footer_hint_height = self
-            .custom_footer_height()
-            .unwrap_or_else(|| footer_height(&footer_props));
+        let footer_hint_height = self.footer_hint_height(&footer_props);
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         let popup_constraint = match &self.popups.active {
@@ -1478,6 +1487,27 @@ impl ChatComposer {
         } else {
             Some(Line::from(spans))
         }
+    }
+
+    fn permission_mode_line(&self, show_cycle_hint: bool) -> Option<Line<'static>> {
+        let mut line = self
+            .footer
+            .permission_mode_indicator
+            .map(|indicator| indicator.line(show_cycle_hint))?;
+        if let Some(indicators) = status_line_right_indicator_line(
+            self.footer.collaboration_mode_indicator,
+            self.footer.goal_status_indicator.as_ref(),
+            self.footer.ide_context_active,
+            /*show_cycle_hint*/ false,
+        ) {
+            line.push_span(" · ".dim());
+            line.spans.extend(indicators.spans);
+        }
+        if let Some(active_agent_label) = self.footer.active_agent_label.as_ref() {
+            line.push_span(" · ".dim());
+            line.push_span(active_agent_label.clone().dim());
+        }
+        Some(line)
     }
 
     fn right_footer_line_with_context(&self) -> Line<'static> {
@@ -3969,6 +3999,17 @@ impl ChatComposer {
             .map(|items| if items.is_empty() { 0 } else { 1 })
     }
 
+    fn footer_hint_height(&self, footer_props: &FooterProps) -> u16 {
+        self.custom_footer_height().unwrap_or_else(|| {
+            footer_height(footer_props)
+                + u16::from(
+                    uses_passive_footer_status_layout(footer_props)
+                        && self.footer.permission_mode_line_enabled
+                        && self.footer.permission_mode_indicator.is_some(),
+                )
+        })
+    }
+
     pub(crate) fn sync_popups(&mut self) {
         self.sync_slash_command_elements();
         if self.history_search.is_some() || self.draft.textarea.vim_query().is_some() {
@@ -4639,9 +4680,7 @@ impl ChatComposer {
         textarea_right_reserve: u16,
     ) -> u16 {
         let footer_props = self.footer_props();
-        let footer_hint_height = self
-            .custom_footer_height()
-            .unwrap_or_else(|| footer_height(&footer_props));
+        let footer_hint_height = self.footer_hint_height(&footer_props);
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
         const COLS_WITH_MARGIN: u16 = LIVE_PREFIX_COLS + 1;
@@ -4699,8 +4738,10 @@ impl ChatComposer {
             }
             ActivePopup::None => {
                 let footer_props = self.footer_props();
-                let show_cycle_hint = !footer_props.is_task_running
-                    && self.footer.collaboration_mode_indicator.is_some();
+                let show_permission_cycle_hint = !footer_props.is_task_running
+                    && self.footer.permission_mode_line_enabled
+                    && self.footer.permission_mode_indicator.is_some();
+                let show_cycle_hint = false;
                 let show_shortcuts_hint = match footer_props.mode {
                     FooterMode::ComposerEmpty => !self.is_in_paste_burst(),
                     FooterMode::ComposerHasDraft => false,
@@ -4717,9 +4758,7 @@ impl ChatComposer {
                     | FooterMode::ShortcutOverlay
                     | FooterMode::EscHint => false,
                 };
-                let custom_height = self.custom_footer_height();
-                let footer_hint_height =
-                    custom_height.unwrap_or_else(|| footer_height(&footer_props));
+                let footer_hint_height = self.footer_hint_height(&footer_props);
                 let footer_spacing = Self::footer_spacing(footer_hint_height);
                 let hint_rect = if footer_spacing > 0 && footer_hint_height > 0 {
                     let [_, hint_rect] = Layout::vertical([
@@ -4739,7 +4778,11 @@ impl ChatComposer {
                     let available_width =
                         hint_rect.width.saturating_sub(FOOTER_INDENT_COLS as u16) as usize;
                     let status_line_active = uses_passive_footer_status_layout(&footer_props);
-                    let combined_status_line = if status_line_active {
+                    let permission_mode_line_active =
+                        status_line_active && self.footer.permission_mode_line_enabled;
+                    let combined_status_line = if permission_mode_line_active {
+                        footer_props.status_line_value.clone()
+                    } else if status_line_active {
                         passive_footer_status_line(&footer_props)
                     } else {
                         None
@@ -4798,25 +4841,26 @@ impl ChatComposer {
                             show_queue_hint,
                         )
                     };
-                    let right_line =
-                        if let Some(label) = self.footer.side_conversation_context_label.as_ref() {
-                            Some(side_conversation_context_line(label))
-                        } else if let Some(line) = self.shell_mode_footer_line() {
-                            Some(line)
-                        } else if transition_active {
-                            None
-                        } else if status_line_active {
-                            let full = self.mode_indicator_line(show_cycle_hint);
-                            let compact = self.mode_indicator_line(/*show_cycle_hint*/ false);
-                            let full_width = full.as_ref().map(|l| l.width() as u16).unwrap_or(0);
-                            if can_show_left_with_context(hint_rect, left_width, full_width) {
-                                full
-                            } else {
-                                compact
-                            }
+                    let right_line = if let Some(label) =
+                        self.footer.side_conversation_context_label.as_ref()
+                    {
+                        Some(side_conversation_context_line(label))
+                    } else if let Some(line) = self.shell_mode_footer_line() {
+                        Some(line)
+                    } else if transition_active || permission_mode_line_active {
+                        None
+                    } else if status_line_active {
+                        let full = self.mode_indicator_line(show_cycle_hint);
+                        let compact = self.mode_indicator_line(/*show_cycle_hint*/ false);
+                        let full_width = full.as_ref().map(|line| line.width() as u16).unwrap_or(0);
+                        if can_show_left_with_context(hint_rect, left_width, full_width) {
+                            full
                         } else {
-                            Some(self.right_footer_line_with_context())
-                        };
+                            compact
+                        }
+                    } else {
+                        Some(self.right_footer_line_with_context())
+                    };
                     let right_width = right_line.as_ref().map(|l| l.width() as u16).unwrap_or(0);
                     if status_line_active
                         && let Some(max_left) = max_left_width_for_right(hint_rect, right_width)
@@ -4926,6 +4970,17 @@ impl ChatComposer {
                             show_shortcuts_hint,
                             show_queue_hint,
                         );
+                    }
+                    if permission_mode_line_active
+                        && let Some(line) = self.permission_mode_line(show_permission_cycle_hint)
+                    {
+                        let permission_mode_rect = Rect::new(
+                            hint_rect.x,
+                            hint_rect.y + hint_rect.height.saturating_sub(1),
+                            hint_rect.width,
+                            1,
+                        );
+                        render_footer_line(permission_mode_rect, buf, line);
                     }
                     if show_right && let Some(line) = &right_line {
                         render_context_right(hint_rect, buf, line);
@@ -5377,7 +5432,7 @@ mod tests {
         );
         setup(&mut composer);
         let footer_props = composer.footer_props();
-        let footer_lines = footer_height(&footer_props);
+        let footer_lines = composer.footer_hint_height(&footer_props);
         let footer_spacing = ChatComposer::footer_spacing(footer_lines);
         let height = footer_lines + footer_spacing + 8;
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

@@ -33,7 +33,6 @@ use ratatui::text::Span;
 
 use super::super::chat_composer_history::HistorySearchDirection;
 use super::super::chat_composer_history::HistorySearchResult;
-use super::super::footer::footer_height;
 use super::super::footer::reset_mode_after_activity;
 use super::super::textarea::VimPersistentState;
 use super::ActivePopup;
@@ -470,9 +469,7 @@ impl ChatComposer {
         }
 
         let footer_props = self.footer_props();
-        let footer_hint_height = self
-            .custom_footer_height()
-            .unwrap_or_else(|| footer_height(&footer_props));
+        let footer_hint_height = self.footer_hint_height(&footer_props);
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let hint_rect = if footer_spacing > 0 && footer_hint_height > 0 {
             let [_, hint_rect] = Layout::vertical([

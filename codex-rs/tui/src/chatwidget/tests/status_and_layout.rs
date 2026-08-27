@@ -4066,6 +4066,8 @@ async fn status_line_model_with_reasoning_plan_mode_footer_snapshot() {
     chat.show_welcome_banner = false;
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
     chat.local_settings.tui.status_line = Some(vec!["model-with-reasoning".to_string()]);
+    chat.bottom_pane
+        .set_permission_mode_line_enabled(/*enabled*/ true);
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
 
     let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())

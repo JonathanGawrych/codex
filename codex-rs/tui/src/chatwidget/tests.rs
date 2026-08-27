@@ -143,7 +143,6 @@ pub(super) use codex_protocol::config_types::Personality;
 pub(super) use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 pub(super) use codex_protocol::config_types::ServiceTier;
 pub(super) use codex_protocol::models::ActivePermissionProfile;
-pub(super) use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 pub(super) use codex_protocol::models::FileSystemPermissions;
 pub(super) use codex_protocol::models::MessagePhase;
 pub(super) use codex_protocol::models::NetworkPermissions;
@@ -270,6 +269,9 @@ mod side;
 mod slash_commands;
 mod status_and_layout;
 mod status_command_tests;
+#[cfg(unix)]
+#[path = "tests/status_line_command_tests.rs"]
+mod status_line_command_tests;
 mod status_surface_previews;
 mod terminal_title;
 mod usage;

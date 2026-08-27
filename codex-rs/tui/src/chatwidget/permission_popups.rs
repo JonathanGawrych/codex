@@ -5,12 +5,91 @@
 //! `windows_sandbox_prompts`.
 
 use super::*;
+use crate::bottom_pane::PermissionModeIndicator;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 
 impl ChatWidget {
     /// Open the permissions popup.
     pub(crate) fn open_approvals_popup(&mut self) {
         self.open_permissions_popup();
+    }
+
+    pub(super) fn cycle_permission_mode(&mut self) {
+        let modes = [
+            PermissionModeIndicator::Auto,
+            PermissionModeIndicator::Manual,
+            PermissionModeIndicator::AcceptEdits,
+            PermissionModeIndicator::BypassPermissions,
+        ];
+        let current = self.permission_mode_indicator();
+        let current_index = modes.iter().position(|mode| *mode == current);
+        let presets = builtin_approval_presets();
+
+        for offset in 1..=modes.len() {
+            let index = current_index.map_or(offset - 1, |index| (index + offset) % modes.len());
+            let mode = modes[index];
+            let (preset_id, approvals_reviewer, display_label) = match mode {
+                PermissionModeIndicator::Auto => {
+                    ("auto", ApprovalsReviewer::AutoReview, "Auto mode")
+                }
+                PermissionModeIndicator::Manual => {
+                    ("read-only", ApprovalsReviewer::User, "Manual mode")
+                }
+                PermissionModeIndicator::AcceptEdits => {
+                    ("auto", ApprovalsReviewer::User, "Accept edits")
+                }
+                PermissionModeIndicator::BypassPermissions => {
+                    ("full-access", ApprovalsReviewer::User, "Bypass permissions")
+                }
+                PermissionModeIndicator::Custom => continue,
+            };
+            if mode == PermissionModeIndicator::Auto && !auto_review_available(&self.config) {
+                continue;
+            }
+            let Some(preset) = presets.iter().find(|preset| preset.id == preset_id) else {
+                continue;
+            };
+            let approval_policy = AskForApproval::from(preset.approval);
+            if self
+                .config
+                .permissions
+                .approval_policy
+                .can_set(&approval_policy.to_core())
+                .is_err()
+                || self
+                    .config
+                    .permissions
+                    .can_set_permission_profile(&preset.permission_profile)
+                    .is_err()
+                || !self.config.is_permission_profile_allowed(
+                    preset.active_permission_profile.id.as_str(),
+                    &preset.permission_profile,
+                )
+                || self
+                    .config
+                    .config_layer_stack
+                    .requirements()
+                    .approvals_reviewer
+                    .can_set(&approvals_reviewer)
+                    .is_err()
+            {
+                continue;
+            }
+
+            let selection = PermissionProfileSelection {
+                profile_id: preset.active_permission_profile.id.clone(),
+                approval_policy: Some(approval_policy),
+                approvals_reviewer: Some(approvals_reviewer),
+                display_label: display_label.to_string(),
+            };
+            self.app_event_tx
+                .send(AppEvent::SelectPermissionProfile(selection));
+            return;
+        }
+
+        self.add_error_message(
+            "No other permission mode is allowed by your configuration.".to_string(),
+        );
     }
 
     /// Open a popup to choose the permissions mode.

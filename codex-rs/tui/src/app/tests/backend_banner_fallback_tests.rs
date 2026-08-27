@@ -54,8 +54,9 @@ async fn backend_banner_fallback_updates_task_settings_and_keeps_notice() -> Res
         app.chat_widget
             .set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
         if mode_kind == ModeKind::Plan {
-            app.chat_widget
-                .handle_key_event(KeyEvent::from(KeyCode::BackTab));
+            let plan_mask = crate::collaboration_modes::plan_mask(app.model_catalog.as_ref())
+                .expect("expected plan collaboration mode");
+            app.chat_widget.set_collaboration_mask(plan_mask);
             app.chat_widget
                 .set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::High));
         }
@@ -157,9 +158,14 @@ async fn backend_banner_fallback_updates_task_settings_and_keeps_notice() -> Res
         assert_eq!(std::fs::read(&config_path).ok(), saved_config);
         if mode_kind == ModeKind::Plan {
             let chat = &mut app.chat_widget;
-            chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+            let default_mask =
+                crate::collaboration_modes::default_mask(chat.model_catalog().as_ref())
+                    .expect("expected default collaboration mode");
+            chat.set_collaboration_mask(default_mask);
             assert_eq!(chat.active_collaboration_mode_kind(), ModeKind::Default);
-            chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+            let plan_mask = crate::collaboration_modes::plan_mask(chat.model_catalog().as_ref())
+                .expect("expected plan collaboration mode");
+            chat.set_collaboration_mask(plan_mask);
         }
         app.chat_widget
             .restore_user_message_to_composer(UserMessage::from("continue"));

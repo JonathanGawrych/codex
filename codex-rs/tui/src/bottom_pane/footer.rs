@@ -50,6 +50,7 @@ use crate::ui_consts::FOOTER_INDENT_COLS;
 use crossterm::event::KeyCode;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -90,6 +91,15 @@ pub(crate) struct FooterProps {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CollaborationModeIndicator {
     Plan,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PermissionModeIndicator {
+    Auto,
+    Manual,
+    AcceptEdits,
+    BypassPermissions,
+    Custom,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +164,38 @@ impl CollaborationModeIndicator {
         match self {
             CollaborationModeIndicator::Plan => Span::from(label).magenta(),
         }
+    }
+}
+
+impl PermissionModeIndicator {
+    pub(crate) fn line(self, show_cycle_hint: bool) -> Line<'static> {
+        let (icon, label) = match self {
+            PermissionModeIndicator::Auto => ("▸▸", "auto mode on"),
+            PermissionModeIndicator::Manual => ("Ⅱ", "manual mode on"),
+            PermissionModeIndicator::AcceptEdits => ("▸▸", "accept edits on"),
+            PermissionModeIndicator::BypassPermissions => ("▸▸", "bypass permissions on"),
+            PermissionModeIndicator::Custom => ("▸▸", "custom permissions on"),
+        };
+        let mode = format!("{icon} {label}");
+        let mut line = match self {
+            PermissionModeIndicator::Auto => {
+                Line::from(Span::from(mode).fg(Color::Rgb(255, 193, 7)))
+            }
+            PermissionModeIndicator::Manual => {
+                Line::from(Span::from(mode).fg(Color::Rgb(153, 153, 153)))
+            }
+            PermissionModeIndicator::AcceptEdits => {
+                Line::from(Span::from(mode).fg(Color::Rgb(175, 135, 255)))
+            }
+            PermissionModeIndicator::BypassPermissions => {
+                Line::from(Span::from(mode).fg(Color::Rgb(255, 107, 128)))
+            }
+            PermissionModeIndicator::Custom => Line::from(mode.cyan()),
+        };
+        if show_cycle_hint {
+            line.push_span(format!(" ({MODE_CYCLE_HINT})").dim());
+        }
+        line
     }
 }
 
@@ -1312,6 +1354,20 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::Backend;
     use ratatui::backend::TestBackend;
+
+    #[test]
+    fn permission_mode_indicators_snapshot() {
+        let rendered = [
+            PermissionModeIndicator::Auto,
+            PermissionModeIndicator::Manual,
+            PermissionModeIndicator::AcceptEdits,
+            PermissionModeIndicator::BypassPermissions,
+        ]
+        .map(|mode| format!("{:#?}", mode.line(/*show_cycle_hint*/ true)))
+        .join("\n");
+
+        assert_snapshot!("permission_mode_indicators", rendered);
+    }
 
     fn snapshot_footer(name: &str, props: FooterProps) {
         snapshot_footer_with_mode_indicator(

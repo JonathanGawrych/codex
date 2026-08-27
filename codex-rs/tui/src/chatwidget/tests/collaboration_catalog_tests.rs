@@ -28,11 +28,11 @@ async fn collaboration_catalog_selection_clears_restored_prompt_and_survives_mod
     let request_id = uuid::Uuid::new_v4();
     chat.model_popup_request_id = Some(request_id);
     assert!(chat.on_models_loaded(request_id, Ok(models)));
-    assert_eq!(chat.model_catalog.collaboration_modes, vec![plan]);
+    assert_eq!(chat.model_catalog.collaboration_modes, vec![plan.clone()]);
     assert_eq!(chat.effective_collaboration_mode(), restored);
     assert!(collaboration_modes::default_mode_mask(&chat.model_catalog).is_none());
 
-    chat.cycle_collaboration_mode();
+    chat.set_collaboration_mask(plan.clone());
     assert_eq!(
         chat.effective_collaboration_mode(),
         CollaborationMode {
@@ -45,7 +45,7 @@ async fn collaboration_catalog_selection_clears_restored_prompt_and_survives_mod
         }
     );
     chat.set_plan_mode_reasoning_effort(Some(ReasoningEffortConfig::Ultra));
-    chat.cycle_collaboration_mode();
+    chat.set_collaboration_mask(plan);
     assert_eq!(
         chat.effective_reasoning_effort(),
         Some(ReasoningEffortConfig::Ultra)
@@ -63,19 +63,6 @@ async fn collaboration_catalog_unavailable_preserves_task_and_plan_input() {
     Arc::make_mut(&mut chat.model_catalog)
         .collaboration_modes
         .clear();
-    for mode in [ModeKind::Default, ModeKind::Plan] {
-        let restored = CollaborationMode {
-            mode,
-            settings: Settings {
-                model: "task-model".into(),
-                reasoning_effort: Some(ReasoningEffortConfig::Ultra),
-                developer_instructions: Some("restored prompt".into()),
-            },
-        };
-        chat.set_effective_collaboration_mode(restored.clone());
-        chat.cycle_collaboration_mode();
-        assert_eq!(chat.effective_collaboration_mode(), restored);
-    }
     chat.set_effective_collaboration_mode(CollaborationMode {
         mode: ModeKind::Default,
         settings: Settings {

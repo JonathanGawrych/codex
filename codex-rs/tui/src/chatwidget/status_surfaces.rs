@@ -13,9 +13,20 @@ use crate::model_catalog::LUNA_RESERVE_MODEL;
 use crate::status::format_credit_micros;
 use crate::status::format_estimated_usd_micros;
 use crate::status::format_tokens_compact;
+use crate::status_line_command::StatusLineAgent;
+use crate::status_line_command::StatusLineCommandPayload;
+use crate::status_line_command::StatusLineContextWindow;
+use crate::status_line_command::StatusLineModel;
+use crate::status_line_command::StatusLinePersonality;
+use crate::status_line_command::StatusLineRateLimitWindow;
+use crate::status_line_command::StatusLineRateLimits;
+use crate::status_line_command::StatusLineWorkspace;
+use crate::status_line_command::run_status_line_command;
+use crate::status_line_command::serialize_status_line_payload;
 use codex_app_server_protocol::AskForApproval;
 use codex_config::ConfigLayerSource;
 use codex_config::os_host_name;
+use codex_config::types::StatusLineCommandConfig;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::models::PermissionProfile;
@@ -200,12 +211,27 @@ impl ChatWidget {
     }
 
     fn refresh_status_line_from_selections(&mut self, selections: &StatusSurfaceSelections) {
-        let enabled = !selections.status_line_items.is_empty();
+        let status_line_command = self
+            .local_settings
+            .tui
+            .status_line_command
+            .clone()
+            .filter(|config| !config.command.trim().is_empty());
+        let enabled = status_line_command.is_some() || !selections.status_line_items.is_empty();
         self.bottom_pane.set_status_line_enabled(enabled);
         if !enabled {
             self.set_status_line(/*status_line*/ None);
             self.set_status_line_hyperlink(/*url*/ None);
             return;
+        }
+
+        if let Some(config) = status_line_command {
+            self.request_status_line_command_if_needed(config, Instant::now());
+            if let Some(line) = self.status_line_command_output.clone() {
+                self.set_status_line(Some(line));
+                self.set_status_line_hyperlink(/*url*/ None);
+                return;
+            }
         }
 
         let mut segments = Vec::new();
@@ -225,6 +251,167 @@ impl ChatWidget {
             .then(|| self.status_line_pull_request_url())
             .flatten();
         self.set_status_line_hyperlink(hyperlink_url);
+    }
+
+    fn request_status_line_command_if_needed(
+        &mut self,
+        config: StatusLineCommandConfig,
+        now: Instant,
+    ) {
+        if self.status_line_command_pending_request_id.is_some() {
+            return;
+        }
+
+        let payload = match serialize_status_line_payload(&self.status_line_command_payload()) {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.warn_status_line_command_once(error);
+                return;
+            }
+        };
+        let refresh_interval = Duration::from_secs(config.refresh_interval_seconds.max(1));
+        let payload_changed = self.status_line_command_last_payload.as_deref() != Some(&payload);
+        let config_changed = self.status_line_command_last_config.as_ref() != Some(&config);
+        let refresh_due =
+            self.status_line_command_last_requested_at
+                .is_none_or(|last_requested_at| {
+                    now.saturating_duration_since(last_requested_at) >= refresh_interval
+                });
+        if !payload_changed && !config_changed && !refresh_due {
+            return;
+        }
+
+        let request_id = self.next_status_line_command_request_id;
+        self.next_status_line_command_request_id = self
+            .next_status_line_command_request_id
+            .wrapping_add(/*rhs*/ 1);
+        self.status_line_command_pending_request_id = Some(request_id);
+        self.status_line_command_last_payload = Some(payload.clone());
+        self.status_line_command_last_config = Some(config.clone());
+        self.status_line_command_last_requested_at = Some(now);
+        self.frame_requester.schedule_frame_in(refresh_interval);
+
+        let cwd = self.status_line_command_cwd.clone();
+        let tx = self.app_event_tx.clone();
+        tokio::spawn(async move {
+            let result = run_status_line_command(config, payload, &cwd).await;
+            tx.send(AppEvent::StatusLineCommandUpdated { request_id, result });
+        });
+    }
+
+    fn status_line_command_payload(&self) -> StatusLineCommandPayload {
+        let cwd = self.status_line_cwd();
+        let cwd = cwd.to_string_lossy().into_owned();
+        let remaining_percentage = self.status_line_context_remaining_percent();
+        let snapshot = self.rate_limit_snapshots_by_limit_id.get("codex");
+        let five_hour = snapshot
+            .and_then(five_hour_status_window)
+            .map(|(window, _)| status_line_rate_limit_window(window));
+        let seven_day = snapshot
+            .and_then(weekly_status_window)
+            .map(|(window, _)| status_line_rate_limit_window(window));
+
+        StatusLineCommandPayload {
+            schema_version: 1,
+            agent: StatusLineAgent {
+                name: "codex".to_string(),
+                version: CODEX_CLI_VERSION.to_string(),
+            },
+            session_id: self.thread_id.map(|thread_id| thread_id.to_string()),
+            cwd: cwd.clone(),
+            workspace: StatusLineWorkspace {
+                current_dir: cwd,
+                project_dir: self
+                    .status_line_project_root_for_cwd(self.status_line_cwd())
+                    .map(|path| path.to_string_lossy().into_owned()),
+            },
+            model: StatusLineModel {
+                id: self.current_model().to_string(),
+                display_name: self.model_display_name().to_string(),
+            },
+            profile: self
+                .config
+                .config_layer_stack
+                .get_active_user_layer()
+                .and_then(|layer| match &layer.name {
+                    ConfigLayerSource::User { profile, .. } => profile.clone(),
+                    _ => None,
+                }),
+            personality: self.config.personality.map(|personality| {
+                let display_name = match personality {
+                    Personality::None => "None",
+                    Personality::Friendly => "Friendly",
+                    Personality::Pragmatic => "Pragmatic",
+                };
+                StatusLinePersonality {
+                    id: personality.to_string(),
+                    display_name: display_name.to_string(),
+                }
+            }),
+            context_window: StatusLineContextWindow {
+                used_percentage: remaining_percentage
+                    .map(|remaining| (100 - remaining).clamp(0, 100)),
+                remaining_percentage,
+                size: self.status_line_context_window_size(),
+            },
+            rate_limits: StatusLineRateLimits {
+                five_hour,
+                seven_day,
+            },
+        }
+    }
+
+    pub(super) fn refresh_status_line_command_if_due(&mut self) {
+        let Some(config) = self
+            .local_settings
+            .tui
+            .status_line_command
+            .clone()
+            .filter(|config| !config.command.trim().is_empty())
+        else {
+            return;
+        };
+        let refresh_interval = Duration::from_secs(config.refresh_interval_seconds.max(1));
+        if self.status_line_command_pending_request_id.is_none()
+            && self
+                .status_line_command_last_requested_at
+                .is_none_or(|last_requested_at| {
+                    Instant::now().saturating_duration_since(last_requested_at) >= refresh_interval
+                })
+        {
+            self.refresh_status_line();
+        }
+    }
+
+    pub(crate) fn set_status_line_command_output(
+        &mut self,
+        request_id: u64,
+        result: Result<Option<Line<'static>>, String>,
+    ) -> bool {
+        if self.status_line_command_pending_request_id != Some(request_id) {
+            return false;
+        }
+        self.status_line_command_pending_request_id = None;
+
+        match result {
+            Ok(output) => {
+                self.status_line_command_output = output;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "status-line command failed");
+                self.warn_status_line_command_once(error);
+            }
+        }
+        self.refresh_status_line();
+        true
+    }
+
+    fn warn_status_line_command_once(&mut self, error: String) {
+        if self.status_line_command_error_warned {
+            return;
+        }
+        self.status_line_command_error_warned = true;
+        self.on_warning(format!("Status line command failed: {error}"));
     }
 
     /// Clears the terminal title Codex most recently wrote, if any.
@@ -752,7 +939,11 @@ impl ChatWidget {
                     .get("codex")
                     .and_then(five_hour_status_window)?;
                 let label = limit_label_for_window(window.window_minutes, is_secondary);
-                self.status_line_limit_display(Some(window), &label)
+                let remaining = (100.0f64 - window.used_percent).clamp(0.0f64, 100.0f64);
+                Some(format!(
+                    "{label} {}",
+                    format_status_limit_summary(remaining)
+                ))
             }
             StatusLineItem::WeeklyLimit => {
                 let (window, is_secondary) = self
@@ -760,7 +951,11 @@ impl ChatWidget {
                     .get("codex")
                     .and_then(weekly_status_window)?;
                 let label = limit_label_for_window(window.window_minutes, is_secondary);
-                self.status_line_limit_display(Some(window), &label)
+                let remaining = (100.0f64 - window.used_percent).clamp(0.0f64, 100.0f64);
+                Some(format!(
+                    "{label} {}",
+                    format_status_limit_summary(remaining)
+                ))
             }
             StatusLineItem::CodexVersion => Some(CODEX_CLI_VERSION.to_string()),
             StatusLineItem::ContextWindowSize => self
@@ -1084,6 +1279,17 @@ impl ChatWidget {
         let mut truncated = head.graphemes(true).take(max_chars - 3).collect::<String>();
         truncated.push_str("...");
         truncated
+    }
+}
+
+fn status_line_rate_limit_window(window: &RateLimitWindowDisplay) -> StatusLineRateLimitWindow {
+    StatusLineRateLimitWindow {
+        used_percentage: window.used_percent,
+        resets_at: window
+            .resets_at_time
+            .as_ref()
+            .map(chrono::DateTime::timestamp),
+        window_minutes: window.window_minutes,
     }
 }
 

@@ -153,7 +153,9 @@ async fn restored_conversation_ultra_remains_selected_after_switching_to_plan() 
         network_proxy: None,
         rollout_path: None,
     });
-    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let plan_mask = collaboration_modes::plan_mask(chat.model_catalog.as_ref())
+        .expect("expected plan collaboration mode");
+    chat.set_collaboration_mask(plan_mask);
 
     assert_eq!(chat.active_collaboration_mode_kind(), ModeKind::Plan);
     assert_eq!(
