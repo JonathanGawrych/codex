@@ -543,6 +543,8 @@ pub enum QueuedInputAction {
     Literal,
     ParseSlash,
     RunShell,
+    ArchiveAfterReply,
+    DeleteAfterReply,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
