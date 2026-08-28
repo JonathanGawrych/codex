@@ -10,7 +10,6 @@ use super::session_lifecycle::ThreadAttachPresentation;
 use super::*;
 use crate::app_event::RecapTrigger;
 use crate::app_event::ThreadTitleDestination;
-use crate::app_server_session::ForkGoalContinuation;
 use crate::app_server_session::UnsupportedLegacyPermissionProfile;
 use crate::app_server_session::turn_permissions_overrides;
 use crate::config_update::format_config_error;
@@ -55,7 +54,7 @@ impl App {
                         mode: crate::app_event::ManagedWorktreeMode::Fork,
                         ..
                     }
-                    | AppEvent::ForkSessionForPromptEdit { .. }
+                    | AppEvent::EditEarlierPrompt { .. }
                     | AppEvent::SetThreadGoalDraft { .. }
                     | AppEvent::SetThreadGoalStatus {
                         status: ThreadGoalStatus::Active,
@@ -454,146 +453,21 @@ impl App {
                 self.chat_widget.maybe_send_next_queued_input();
                 tui.frame_requester().schedule_frame();
             }
-            AppEvent::ForkSessionForPromptEdit {
+            AppEvent::EditEarlierPrompt {
                 thread_id,
                 nth_user_message,
-                mut prompt,
+                prompt,
+                action,
             } => {
-                if self.chat_widget.thread_id() != Some(thread_id) {
-                    return Ok(AppRunControl::Continue);
-                }
-                if self.pending_server_profiles.contains_key(&thread_id) {
-                    self.chat_widget.restore_user_message_to_composer(prompt);
-                    self.chat_widget.add_error_message(
-                        "Wait for permissions to update before editing this prompt.".into(),
-                    );
-                    tui.frame_requester().schedule_frame();
-                    return Ok(AppRunControl::Continue);
-                }
-                self.session_telemetry.counter(
-                    "codex.thread.fork",
-                    /*inc*/ 1,
-                    &[("source", "transcript")],
-                );
-                self.refresh_in_memory_config_from_disk_best_effort("forking the thread")
-                    .await;
-                let config = self.fresh_session_config();
-                let selected_profile = self.confirmed_server_profile(thread_id);
-                let turns = match self.thread_event_channels.get(&thread_id) {
-                    Some(channel) => {
-                        let store = channel.store.lock().await;
-                        let mut turns = store.turns.clone();
-                        // Snapshot turns contain loaded history; newer live turns remain in
-                        // the replay buffer and must also be visible to prompt-edit lookups.
-                        for event in &store.buffer {
-                            let ThreadBufferedEvent::Notification(notification) = event else {
-                                continue;
-                            };
-                            match notification.as_ref() {
-                                ServerNotification::TurnStarted(notification)
-                                    if !turns
-                                        .iter()
-                                        .any(|turn| turn.id == notification.turn.id) =>
-                                {
-                                    turns.push(notification.turn.clone());
-                                }
-                                ServerNotification::ItemCompleted(notification) => {
-                                    if matches!(
-                                        notification.item,
-                                        ThreadItem::UserMessage { .. }
-                                            | ThreadItem::EnteredReviewMode { .. }
-                                            | ThreadItem::ExitedReviewMode { .. }
-                                    ) && let Some(turn) = turns
-                                        .iter_mut()
-                                        .find(|turn| turn.id == notification.turn_id)
-                                        && !turn
-                                            .items
-                                            .iter()
-                                            .any(|item| item.id() == notification.item.id())
-                                    {
-                                        turn.items.push(notification.item.clone());
-                                    }
-                                }
-                                ServerNotification::TurnCompleted(notification) => {
-                                    if let Some(turn) = turns
-                                        .iter_mut()
-                                        .find(|turn| turn.id == notification.turn.id)
-                                    {
-                                        turn.status = notification.turn.status.clone();
-                                        turn.error = notification.turn.error.clone();
-                                        turn.started_at = notification.turn.started_at;
-                                        turn.completed_at = notification.turn.completed_at;
-                                        turn.duration_ms = notification.turn.duration_ms;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        Some(turns)
-                    }
-                    None => None,
-                };
-                let started = match turns {
-                    Some(turns) => match crate::app_backtrack::backtrack_fork_before_turn_id(
-                        &turns,
-                        nth_user_message,
-                        &mut prompt,
-                    ) {
-                        Ok(before_turn_id)
-                            if before_turn_id.is_some()
-                                || app_server.has_older_history(thread_id) =>
-                        {
-                            let before_turn_id = before_turn_id
-                                .or_else(|| turns.first().map(|turn| turn.id.clone()));
-                            app_server
-                                .fork_thread_at(&self.local_settings, config.clone(),
-                                    thread_id,
-                                    /*last_turn_id*/ None,
-                                    before_turn_id,
-                                    ForkGoalContinuation::StartIfIdle,
-                                    selected_profile.as_ref(),
-                                )
-                                .await
-                        }
-                        Ok(_) => {
-                            app_server
-                                .start_thread_with_session_start_source(
-&self.local_settings,
-                                    &config, /*session_start_source*/ None,
-                                    /*remote_cwd_override*/ None,
-                                    selected_profile.as_ref(),
-                                )
-                                .await
-                        }
-                        Err(err) => Err(err),
-                    },
-                    None => Err(color_eyre::eyre::eyre!(
-                        "the selected thread is no longer available for prompt editing"
-                    )),
-                };
-                match started {
-                    Ok(forked) => {
-                        self.shutdown_current_thread(app_server).await;
-                        match self
-                            .replace_chat_widget_with_app_server_thread(
-                                tui,
-                                forked,
-                                ThreadAttachPresentation::PromptEdit,
-                                /*initial_user_message*/ None,
-                            )
-                            .await
-                        {
-                            Ok(()) => self.chat_widget.restore_user_message_to_composer(prompt),
-                            Err(err) => {
-                                self.restore_backtrack_prompt_after_branch_error(prompt, err);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        self.restore_backtrack_prompt_after_branch_error(prompt, err);
-                    }
-                }
-                tui.frame_requester().schedule_frame();
+                self.edit_earlier_prompt(
+                    tui,
+                    app_server,
+                    thread_id,
+                    nth_user_message,
+                    prompt,
+                    action,
+                )
+                .await;
             }
             AppEvent::BeginInitialHistoryReplayBuffer => {
                 self.begin_initial_history_replay_buffer();

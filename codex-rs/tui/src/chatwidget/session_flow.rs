@@ -141,7 +141,9 @@ impl ChatWidget {
         let model_for_header = self.current_model().to_string();
         if matches!(
             display,
-            SessionConfiguredDisplay::Normal | SessionConfiguredDisplay::PromptEdit
+            SessionConfiguredDisplay::Normal
+                | SessionConfiguredDisplay::PromptEdit
+                | SessionConfiguredDisplay::PromptRollback
         ) {
             let startup_tooltip_override = self.startup_tooltip_override.take();
             let show_fast_status = self
@@ -212,6 +214,15 @@ impl ChatWidget {
             session,
             SessionConfiguredDisplay::PromptEdit,
             fork_parent_title,
+        );
+    }
+
+    pub(crate) fn handle_prompt_rollback_thread_session(&mut self, session: ThreadSessionState) {
+        self.instruction_source_paths = session.instruction_source_paths.clone();
+        self.on_session_configured_with_display_and_fork_parent_title(
+            session,
+            SessionConfiguredDisplay::PromptRollback,
+            /*fork_parent_title*/ None,
         );
     }
 

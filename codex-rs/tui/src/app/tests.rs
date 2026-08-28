@@ -63,6 +63,7 @@ use crate::app_backtrack::BacktrackSelection;
 use crate::app_backtrack::BacktrackState;
 use crate::app_backtrack::user_count;
 use crate::app_event::HistoryBatchEntryResponse;
+use crate::app_event::PromptBacktrackAction;
 
 async fn drain_managed_worktree_start(app: &mut App, server: &mut AppServerSession) {
     if let Some((mode, name)) = app.pending_start_managed_worktree.take() {
@@ -7057,7 +7058,7 @@ async fn fresh_session_config_uses_current_service_tier() {
 }
 
 #[tokio::test]
-async fn backtrack_selection_preserves_selected_prompt_and_requests_branch() {
+async fn backtrack_selection_prompts_for_rollback_or_fork() {
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 
     let user_cell = |text: &str,
@@ -7199,15 +7200,42 @@ async fn backtrack_selection_preserves_selected_prompt_and_requests_branch() {
     assert_eq!(selection, expected);
 
     app.apply_backtrack_selection(selection);
+    assert_app_snapshot!(
+        "backtrack_action_picker",
+        render_bottom_popup(&app.chat_widget, /*width*/ 100)
+    );
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let event = std::iter::from_fn(|| app_event_rx.try_recv().ok())
-        .find(|event| matches!(event, AppEvent::ForkSessionForPromptEdit { .. }))
-        .expect("prompt edit fork should be requested");
+        .find(|event| matches!(event, AppEvent::EditEarlierPrompt { .. }))
+        .expect("prompt edit rollback should be requested");
     assert_matches!(
         event,
-        AppEvent::ForkSessionForPromptEdit {
+        AppEvent::EditEarlierPrompt {
             thread_id,
             nth_user_message,
             prompt,
+            action: PromptBacktrackAction::Rollback,
+        } if thread_id == expected.thread_id
+            && nth_user_message == expected.nth_user_message
+            && prompt == expected.prompt
+    );
+
+    app.apply_backtrack_selection(expected.clone());
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let event = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::EditEarlierPrompt { .. }))
+        .expect("prompt edit fork should be requested");
+    assert_matches!(
+        event,
+        AppEvent::EditEarlierPrompt {
+            thread_id,
+            nth_user_message,
+            prompt,
+            action: PromptBacktrackAction::Fork,
         } if thread_id == expected.thread_id
             && nth_user_message == expected.nth_user_message
             && prompt == expected.prompt
@@ -7840,10 +7868,11 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
     let control = Box::pin(app.handle_event(
         &mut tui,
         &mut app_server,
-        AppEvent::ForkSessionForPromptEdit {
+        AppEvent::EditEarlierPrompt {
             thread_id: source_thread_id,
             nth_user_message: 1,
             prompt: prompt.clone(),
+            action: PromptBacktrackAction::Fork,
         },
     ))
     .await?;
@@ -7903,6 +7932,113 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
             .iter()
             .any(|line| line.contains("Thread forked from"))
     );
+    app_server.shutdown().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn prompt_edit_rolls_back_before_selected_prompt_and_keeps_thread() -> Result<()> {
+    let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
+    let config = app.chat_widget.config_ref().clone();
+    let filename_ts = "2025-01-05T12-02-00";
+    let source_thread_id = app_test_support::create_fake_rollout(
+        config.codex_home.as_path(),
+        filename_ts,
+        "2025-01-05T12:02:00Z",
+        "unused preview",
+        Some("test-provider"),
+        /*git_info*/ None,
+    )
+    .expect("materialized rollout should be created");
+    let source_path =
+        app_test_support::rollout_path(config.codex_home.as_path(), filename_ts, &source_thread_id);
+    let session_meta = std::fs::read_to_string(&source_path)?
+        .lines()
+        .next()
+        .expect("fake rollout should have session metadata")
+        .to_string();
+    std::fs::write(&source_path, format!("{session_meta}\n"))?;
+    for (turn_id, message) in [("turn-1", "retained prompt"), ("turn-2", "selected prompt")] {
+        for item in [
+            RolloutItem::EventMsg(EventMsg::TurnStarted(TurnStartedEvent {
+                turn_id: turn_id.to_string(),
+                trace_id: None,
+                started_at: None,
+                model_context_window: None,
+                collaboration_mode_kind: ModeKind::default(),
+            })),
+            RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+                message: message.to_string(),
+                ..Default::default()
+            })),
+            RolloutItem::EventMsg(EventMsg::TurnComplete(TurnCompleteEvent {
+                turn_id: turn_id.to_string(),
+                last_agent_message: None,
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            })),
+        ] {
+            codex_rollout::append_rollout_item_to_path(&source_path, &item).await?;
+        }
+    }
+
+    let source_thread_id = ThreadId::from_string(&source_thread_id)?;
+    let mut app_server = Box::pin(crate::start_embedded_app_server_for_picker(&config)).await?;
+    let started = app_server
+        .resume_thread(
+            &app.local_settings,
+            config.clone(),
+            source_thread_id,
+            crate::app_server_session::ResumeModelSettings::OverrideFromCurrentConfig,
+        )
+        .await?;
+    app.enqueue_primary_thread_session(started.session, started.turns)
+        .await?;
+    while app_event_rx.try_recv().is_ok() {}
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+
+    let control = Box::pin(app.handle_event(
+        &mut tui,
+        &mut app_server,
+        AppEvent::EditEarlierPrompt {
+            thread_id: source_thread_id,
+            nth_user_message: 1,
+            prompt: crate::chatwidget::UserMessage::from("selected prompt"),
+            action: PromptBacktrackAction::Rollback,
+        },
+    ))
+    .await?;
+
+    assert!(matches!(control, AppRunControl::Continue));
+    assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
+    assert_eq!(
+        app.chat_widget.composer_text_with_pending(),
+        "selected prompt"
+    );
+    assert_eq!(
+        app_server
+            .thread_read(source_thread_id, /*include_turns*/ true)
+            .await?
+            .turns
+            .iter()
+            .map(|turn| turn.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["turn-1"]
+    );
+    let history = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+        .filter_map(|event| match event {
+            AppEvent::InsertHistoryCell(cell) => {
+                Some(lines_to_single_string(&cell.display_lines(/*width*/ 120)))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(history.iter().any(|line| line.contains("retained prompt")));
+    assert!(!history.iter().any(|line| line.contains("new conversation")));
     app_server.shutdown().await?;
 
     Ok(())
@@ -7990,10 +8126,11 @@ async fn prompt_edit_before_first_prompt_starts_fresh_thread() -> Result<()> {
     let control = Box::pin(app.handle_event(
         &mut tui,
         &mut app_server,
-        AppEvent::ForkSessionForPromptEdit {
+        AppEvent::EditEarlierPrompt {
             thread_id: source_thread_id,
             nth_user_message: 0,
             prompt: crate::chatwidget::UserMessage::from("first prompt"),
+            action: PromptBacktrackAction::Fork,
         },
     ))
     .await?;

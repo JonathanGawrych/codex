@@ -20,6 +20,7 @@ use std::collections::HashSet;
 pub(super) enum ThreadAttachPresentation {
     SessionLineage,
     PromptEdit,
+    PromptRollback,
 }
 
 /// Reports whether a loaded-thread backfill completed and which descendants already had their

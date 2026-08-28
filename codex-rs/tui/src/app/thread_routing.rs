@@ -1421,6 +1421,10 @@ impl App {
             ThreadAttachPresentation::PromptEdit => {
                 self.chat_widget.handle_prompt_edit_thread_session(session);
             }
+            ThreadAttachPresentation::PromptRollback => {
+                self.chat_widget
+                    .handle_prompt_rollback_thread_session(session);
+            }
         }
         let should_buffer_initial_replay = !turns.is_empty();
         if should_buffer_initial_replay {
