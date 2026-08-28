@@ -519,17 +519,18 @@ async fn reconnect_daemon_command_center_after_socket_replacement_without_a_conv
             );
             if changed_child_permissions {
                 assert!(app.chat_widget.is_task_running_for_test());
-                // From an empty draft, daemon Ctrl+C offers the existing Cancel task action.
+                // From an empty draft, daemon Ctrl+C interrupts the active task directly.
                 for key in [
                     KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
                     KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                    KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                 ] {
                     app.handle_tui_event(&mut tui, &mut session, TuiEvent::Key(key))
                         .await?;
                 }
-                assert!(std::iter::from_fn(|| events.try_recv().ok())
-                    .any(|event| matches!(event, AppEvent::RunningTaskExit { action: RunningTaskExitAction::CancelTask, thread_id } if thread_id == id)));
+                assert!(
+                    std::iter::from_fn(|| events.try_recv().ok())
+                        .any(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)))
+                );
                 app.handle_app_server_event(
                     &session,
                     codex_app_server_client::AppServerEvent::ServerNotification(Box::new(

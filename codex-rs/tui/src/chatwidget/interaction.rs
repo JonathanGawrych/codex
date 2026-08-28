@@ -537,9 +537,7 @@ impl ChatWidget {
 
     /// Handles a Ctrl+C press at the chat-widget layer.
     ///
-    /// The first press arms a time-bounded quit shortcut and shows a footer hint via the bottom
-    /// pane. If cancellable work is active, Ctrl+C also submits `Op::Interrupt` after the shortcut
-    /// is armed.
+    /// If cancellable work is active, Ctrl+C submits `Op::Interrupt` and remains in Codex.
     ///
     /// When the double-press quit shortcut is enabled, pressing the same shortcut again before
     /// expiry requests a shutdown-first quit.
@@ -571,17 +569,18 @@ impl ChatWidget {
             return;
         }
 
-        if !DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
-            if self.is_cancellable_work_active() {
-                self.quit_shortcut_expires_at = None;
-                self.quit_shortcut_key = None;
-                self.bottom_pane.clear_quit_shortcut_hint();
-                if self.submit_op(AppCommand::interrupt()) {
-                    self.pause_active_goal_for_interrupt();
-                }
-            } else {
-                self.request_quit_without_confirmation();
+        if self.is_cancellable_work_active() {
+            self.quit_shortcut_expires_at = None;
+            self.quit_shortcut_key = None;
+            self.bottom_pane.clear_quit_shortcut_hint();
+            if self.submit_op(AppCommand::interrupt()) {
+                self.pause_active_goal_for_interrupt();
             }
+            return;
+        }
+
+        if !DOUBLE_PRESS_QUIT_SHORTCUT_ENABLED {
+            self.request_quit_without_confirmation();
             return;
         }
 
@@ -593,10 +592,6 @@ impl ChatWidget {
         }
 
         self.arm_quit_shortcut(key);
-
-        if self.is_cancellable_work_active() && self.submit_op(AppCommand::interrupt()) {
-            self.pause_active_goal_for_interrupt();
-        }
     }
 
     /// Handles a Ctrl+D press at the chat-widget layer.
@@ -654,10 +649,6 @@ impl ChatWidget {
     // Review mode counts as cancellable work so Ctrl+C interrupts instead of quitting.
     fn is_cancellable_work_active(&self) -> bool {
         self.bottom_pane.is_task_running() || self.review.is_review_mode
-    }
-
-    pub(crate) fn is_agent_turn_running(&self) -> bool {
-        self.turn_lifecycle.agent_turn_running
     }
 
     pub(crate) fn is_active_goal_turn_running(&self) -> bool {
