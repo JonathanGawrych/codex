@@ -169,9 +169,7 @@ impl ChatWidget {
                 code: KeyCode::BackTab,
                 kind: KeyEventKind::Press,
                 ..
-            } if !self.bottom_pane.is_task_running()
-                && self.bottom_pane.no_modal_or_popup_active() =>
-            {
+            } if self.bottom_pane.no_modal_or_popup_active() => {
                 if self.blocks_direct_input {
                     self.add_error_message(PARENT_OWNED_INPUT_MESSAGE.to_string());
                 } else {

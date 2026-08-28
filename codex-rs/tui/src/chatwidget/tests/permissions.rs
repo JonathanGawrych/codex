@@ -227,30 +227,9 @@ async fn approvals_selection_popup_snapshot() {
 async fn shift_tab_cycles_claude_style_permission_modes() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.set_feature_enabled(Feature::GuardianApproval, /*enabled*/ true);
+    chat.bottom_pane.set_task_running(/*running*/ true);
 
     chat.set_approval_policy(AskForApproval::OnRequest);
-    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
-        PermissionProfile::workspace_write(),
-        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_WORKSPACE),
-    ))
-    .expect("set workspace permission profile");
-    chat.set_approvals_reviewer(ApprovalsReviewer::AutoReview);
-    while rx.try_recv().is_ok() {}
-    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
-    let event = std::iter::from_fn(|| rx.try_recv().ok())
-        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
-        .expect("expected manual mode selection");
-    assert!(matches!(
-        event,
-        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
-            profile_id,
-            approval_policy: Some(AskForApproval::OnRequest),
-            approvals_reviewer: Some(ApprovalsReviewer::User),
-            display_label,
-        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_READ_ONLY
-            && display_label == "Manual mode"
-    ));
-
     chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
         PermissionProfile::read_only(),
         ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_READ_ONLY),
@@ -278,6 +257,29 @@ async fn shift_tab_cycles_claude_style_permission_modes() {
         ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_WORKSPACE),
     ))
     .expect("set workspace permission profile");
+    chat.set_approvals_reviewer(ApprovalsReviewer::User);
+    while rx.try_recv().is_ok() {}
+    chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
+    let event = std::iter::from_fn(|| rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
+        .expect("expected auto mode selection");
+    assert!(matches!(
+        event,
+        AppEvent::SelectPermissionProfile(PermissionProfileSelection {
+            profile_id,
+            approval_policy: Some(AskForApproval::OnRequest),
+            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+            display_label,
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_WORKSPACE
+            && display_label == "Auto mode"
+    ));
+
+    chat.set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+        PermissionProfile::workspace_write(),
+        ActivePermissionProfile::new(BUILT_IN_PERMISSION_PROFILE_WORKSPACE),
+    ))
+    .expect("set workspace permission profile");
+    chat.set_approvals_reviewer(ApprovalsReviewer::AutoReview);
     while rx.try_recv().is_ok() {}
     chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
     let event = std::iter::from_fn(|| rx.try_recv().ok())
@@ -304,16 +306,16 @@ async fn shift_tab_cycles_claude_style_permission_modes() {
     chat.handle_key_event(KeyEvent::from(KeyCode::BackTab));
     let event = std::iter::from_fn(|| rx.try_recv().ok())
         .find(|event| matches!(event, AppEvent::SelectPermissionProfile(_)))
-        .expect("expected auto mode selection");
+        .expect("expected manual mode selection");
     assert!(matches!(
         event,
         AppEvent::SelectPermissionProfile(PermissionProfileSelection {
             profile_id,
             approval_policy: Some(AskForApproval::OnRequest),
-            approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
+            approvals_reviewer: Some(ApprovalsReviewer::User),
             display_label,
-        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_WORKSPACE
-            && display_label == "Auto mode"
+        }) if profile_id == BUILT_IN_PERMISSION_PROFILE_READ_ONLY
+            && display_label == "Manual mode"
     ));
 }
 
