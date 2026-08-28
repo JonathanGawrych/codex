@@ -367,9 +367,13 @@ impl ChatWidget {
             .filter(|_| self.current_model_supports_personality());
         let service_tier = self.service_tier_update_for_core();
         let active_permission_profile = self.config.permissions.active_permission_profile();
+        let prompt_submission_timestamp =
+            crate::prompt_timestamp::current_prompt_submission_timestamp();
+        let prompt_created_at_ms = prompt_submission_timestamp.created_at_ms;
         let op = AppCommand::user_turn(
             client_user_message_id,
             items,
+            prompt_submission_timestamp.context_value,
             self.config.cwd.to_path_buf(),
             AskForApproval::from(self.config.permissions.approval_policy.value()),
             active_permission_profile,
@@ -400,10 +404,10 @@ impl ChatWidget {
         let render_before_submit =
             render_in_history && matches!(&self.codex_op_target, CodexOpTarget::AppEvent);
         if render_before_submit {
-            self.on_user_message_display(user_message_display_for_history(
-                submitted_message.clone(),
-                &history_record,
-            ));
+            self.on_user_message_display(
+                user_message_display_for_history(submitted_message.clone(), &history_record),
+                Some(prompt_created_at_ms),
+            );
         }
 
         if !self.submit_op(op.clone()) {
@@ -456,10 +460,10 @@ impl ChatWidget {
         if render_in_history {
             self.safety_buffering_prompt = Some(submitted_message.clone());
             if !render_before_submit {
-                self.on_user_message_display(user_message_display_for_history(
-                    submitted_message,
-                    &history_record,
-                ));
+                self.on_user_message_display(
+                    user_message_display_for_history(submitted_message, &history_record),
+                    Some(prompt_created_at_ms),
+                );
             }
         }
 

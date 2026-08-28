@@ -380,7 +380,7 @@ impl App {
             return Ok(true);
         }
 
-        let (session, turns, live_attached) = match app_server
+        let (session, turns, item_created_at_ms, live_attached) = match app_server
             .resume_thread(
                 &self.local_settings,
                 self.config.clone(),
@@ -401,7 +401,12 @@ impl App {
                 if started.blocks_direct_input {
                     self.agent_navigation.mark_parent_owned(thread_id);
                 }
-                (started.session, started.turns, true)
+                (
+                    started.session,
+                    started.turns,
+                    started.item_created_at_ms,
+                    true,
+                )
             }
             Err(resume_err) => {
                 tracing::warn!(
@@ -449,7 +454,12 @@ impl App {
                 // `thread/read` can seed replay state, but it does not attach the app-server
                 // listener that `thread/resume` establishes, so treat this path as replay-only.
                 session.model.clear();
-                (session, turns, false)
+                (
+                    session,
+                    turns,
+                    app_server.item_created_at_ms(thread_id),
+                    false,
+                )
             }
         };
         self.agents_overview.activity.remove(&thread_id);
@@ -463,6 +473,8 @@ impl App {
             } else {
                 Default::default()
             };
+        self.thread_item_created_at_ms
+            .insert(thread_id, item_created_at_ms);
         let channel = self.ensure_thread_channel(thread_id);
         if !live_attached {
             if was_external_writer {
@@ -840,8 +852,7 @@ impl App {
                 // A full usage read can finish before thread/start. Apply its cached fallback
                 // after attachment but before the initial prompt or queued draft is submitted.
                 let recovery_was_pending = self.chat_widget.hold_rate_limit_recovery();
-                self.enqueue_primary_thread_session(started.session, started.turns)
-                    .await?;
+                self.enqueue_primary_started_thread(started).await?;
                 self.apply_backend_banner_fallback(app_server).await;
                 if !recovery_was_pending {
                     self.chat_widget.finish_rate_limit_recovery();
@@ -1005,9 +1016,10 @@ impl App {
         if started.blocks_direct_input {
             self.mark_primary_thread_parent_owned(started.session.thread_id);
         }
-        self.enqueue_primary_thread_session_with_presentation(
+        self.enqueue_primary_thread_session_with_created_at(
             started.session,
             started.turns,
+            started.item_created_at_ms,
             presentation,
         )
         .await?;

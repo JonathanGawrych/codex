@@ -29,7 +29,17 @@ impl ChatWidget {
     /// is intentionally conservative: only safe-to-replay items are rendered to
     /// avoid triggering side effects. Event ids are passed as `None` to
     /// distinguish replayed events from live ones.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn replay_thread_turns(&mut self, turns: Vec<Turn>, replay_kind: ReplayKind) {
+        self.replay_thread_turns_with_created_at(turns, replay_kind, &HashMap::new());
+    }
+
+    pub(crate) fn replay_thread_turns_with_created_at(
+        &mut self,
+        turns: Vec<Turn>,
+        replay_kind: ReplayKind,
+        item_created_at_ms: &HashMap<String, i64>,
+    ) {
         if matches!(replay_kind, ReplayKind::ThreadSnapshot) && !turns.is_empty() {
             self.warning_display_state.startup_complete = true;
         }
@@ -60,7 +70,13 @@ impl ChatWidget {
                 if hidden_nested_review_turn && matches!(item, ThreadItem::UserMessage { .. }) {
                     continue;
                 }
-                self.replay_thread_item(item, turn_id.clone(), replay_kind);
+                let created_at_ms = item_created_at_ms.get(item.id()).copied();
+                self.replay_thread_item_with_created_at(
+                    item,
+                    turn_id.clone(),
+                    replay_kind,
+                    created_at_ms,
+                );
             }
             let status = if hidden_nested_review_turn {
                 TurnStatus::Completed
@@ -100,13 +116,40 @@ impl ChatWidget {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn replay_thread_item(
         &mut self,
         item: ThreadItem,
         turn_id: String,
         replay_kind: ReplayKind,
     ) {
+        self.replay_thread_item_with_created_at(
+            item,
+            turn_id,
+            replay_kind,
+            /*created_at_ms*/ None,
+        );
+    }
+
+    fn replay_thread_item_with_created_at(
+        &mut self,
+        item: ThreadItem,
+        turn_id: String,
+        replay_kind: ReplayKind,
+        created_at_ms: Option<i64>,
+    ) {
+        if self.transcript.active_cell.is_none() {
+            self.transcript.active_cell_created_at_ms = None;
+        }
+        let previous_created_at_ms = self.history_cell_created_at_ms;
+        self.history_cell_created_at_ms = created_at_ms.filter(|value| *value > 0);
         self.handle_thread_item(item, turn_id, ThreadItemRenderSource::Replay(replay_kind));
+        if self.transcript.active_cell.is_some()
+            && self.transcript.active_cell_created_at_ms.is_none()
+        {
+            self.transcript.active_cell_created_at_ms = self.history_cell_created_at_ms;
+        }
+        self.history_cell_created_at_ms = previous_created_at_ms;
     }
 
     pub(super) fn handle_thread_item(

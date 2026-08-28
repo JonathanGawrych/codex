@@ -3464,8 +3464,13 @@ impl ThreadRequestProcessor {
             .into_iter()
             .map(|stored_item| {
                 let turn_id = stored_item.turn_id.clone();
+                let created_at_ms = Some(stored_item.created_at_ms);
                 let item = deserialize_stored_thread_item(stored_item)?;
-                Ok(ThreadItemEntry { turn_id, item })
+                Ok(ThreadItemEntry {
+                    turn_id,
+                    created_at_ms,
+                    item,
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
 

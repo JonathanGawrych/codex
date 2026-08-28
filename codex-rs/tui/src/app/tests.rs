@@ -5169,6 +5169,7 @@ async fn primary_thread_ignores_child_mcp_startup_notifications() {
         AppServerStartedThread {
             session: test_thread_session(child_thread_id, test_path_buf("/tmp/child")),
             turns: Vec::new(),
+            item_created_at_ms: HashMap::new(),
             blocks_direct_input: false,
             task_tools_available: false,
         },
@@ -5838,6 +5839,7 @@ async fn make_test_app() -> App {
         pending_shutdown_exit_thread_id: None,
         windows_sandbox: WindowsSandboxState::default(),
         thread_event_channels: HashMap::new(),
+        thread_item_created_at_ms: HashMap::new(),
         temporary_structured_requests: HashMap::new(),
         pending_thread_titles: HashSet::new(),
         thread_event_listener_tasks: HashMap::new(),
@@ -5932,6 +5934,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             pending_shutdown_exit_thread_id: None,
             windows_sandbox: WindowsSandboxState::default(),
             thread_event_channels: HashMap::new(),
+            thread_item_created_at_ms: HashMap::new(),
             temporary_structured_requests: HashMap::new(),
             pending_thread_titles: HashSet::new(),
             thread_event_listener_tasks: HashMap::new(),
@@ -8386,6 +8389,7 @@ async fn refreshed_snapshot_session_persists_resumed_turns() {
         AppServerStartedThread {
             session: resumed_session.clone(),
             turns: resumed_turns.clone(),
+            item_created_at_ms: HashMap::new(),
             blocks_direct_input: true,
             task_tools_available: false,
         },

@@ -1,5 +1,7 @@
 use super::*;
 use crate::app_event::HistoryLookupResponse;
+use chrono::Local;
+use chrono::TimeZone;
 use codex_app_server_protocol::NetworkAccess;
 use codex_app_server_protocol::SandboxPolicy;
 use codex_protocol::models::FunctionCallOutputBody;
@@ -10,6 +12,7 @@ use codex_protocol::permissions::FileSystemSandboxEntry;
 use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 
 #[tokio::test]
 async fn resumed_initial_messages_render_history() {
@@ -74,6 +77,71 @@ async fn resumed_initial_messages_render_history() {
         text_blob.contains("assistant reply"),
         "expected replayed agent message",
     );
+}
+
+#[tokio::test]
+async fn resumed_items_render_their_persisted_creation_times() {
+    let (mut chat, mut rx, _ops) = make_chatwidget_manual(/*model_override*/ None).await;
+    let user_created_at_ms = 1_725_000_000_123;
+    let agent_created_at_ms = 1_725_000_060_456;
+    let turn = AppServerTurn {
+        items: vec![
+            AppServerThreadItem::UserMessage {
+                id: "user-with-time".to_string(),
+                client_id: None,
+                content: vec![AppServerUserInput::Text {
+                    text: "timestamped prompt".to_string(),
+                    text_elements: Vec::new(),
+                }],
+            },
+            AppServerThreadItem::AgentMessage {
+                id: "agent-with-time".to_string(),
+                text: "timestamped answer".to_string(),
+                phase: None,
+                memory_citation: None,
+                delivery: None,
+                questions: None,
+            },
+        ],
+        ..app_server_turn(
+            "turn-with-times",
+            AppServerTurnStatus::Completed,
+            /*duration_ms*/ None,
+            /*error*/ None,
+        )
+    };
+    let item_created_at_ms = HashMap::from([
+        ("user-with-time".to_string(), user_created_at_ms),
+        ("agent-with-time".to_string(), agent_created_at_ms),
+    ]);
+
+    chat.replay_thread_turns_with_created_at(
+        vec![turn],
+        ReplayKind::ResumeInitialMessages,
+        &item_created_at_ms,
+    );
+
+    let rendered = drain_insert_history(&mut rx)
+        .into_iter()
+        .map(|lines| lines_to_single_string(&lines))
+        .collect::<Vec<_>>();
+    let expected_user_time = Local
+        .timestamp_millis_opt(user_created_at_ms)
+        .single()
+        .expect("valid user timestamp")
+        .format("%-I:%M %p")
+        .to_string();
+    let expected_agent_time = Local
+        .timestamp_millis_opt(agent_created_at_ms)
+        .single()
+        .expect("valid agent timestamp")
+        .format("%-I:%M %p")
+        .to_string();
+    assert_eq!(rendered.len(), 2);
+    assert!(rendered[0].contains("timestamped prompt"));
+    assert!(rendered[0].contains(&expected_user_time));
+    assert!(rendered[1].contains("timestamped answer"));
+    assert!(rendered[1].contains(&expected_agent_time));
 }
 
 #[tokio::test]

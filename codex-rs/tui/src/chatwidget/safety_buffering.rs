@@ -93,7 +93,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn commit_safety_buffered_retry_submission(&mut self, display: UserMessageDisplay) {
-        self.on_user_message_display(display);
+        self.on_user_message_display(display, self.history_cell_created_at_ms);
     }
 
     pub(crate) fn cancel_safety_buffered_retry_submission(&mut self) {

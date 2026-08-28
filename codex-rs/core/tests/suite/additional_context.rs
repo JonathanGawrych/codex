@@ -1,6 +1,9 @@
 use anyhow::Result;
 use codex_core::TurnInputRequest;
+use codex_history::RolloutItem;
 use codex_protocol::items::TurnItem;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::AdditionalContextEntry;
 use codex_protocol::protocol::AdditionalContextKind;
 use codex_protocol::protocol::EventMsg;
@@ -19,6 +22,105 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event_match;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prompt_timestamp_is_model_visible_and_persisted_before_unchanged_user_text() -> Result<()>
+{
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let request = mount_sse_once(
+        &server,
+        sse(vec![ev_response_created("resp-1"), ev_completed("resp-1")]),
+    )
+    .await;
+    let test = test_codex()
+        .with_config(|config| config.include_environment_context = false)
+        .build_with_auto_env(&server)
+        .await?;
+    let prompt_timestamp = "2026-08-28T14:22:31.123456789-06:00";
+    let user_text = "preserve this exact prompt";
+
+    test.codex
+        .start_or_steer_turn(
+            TurnInputRequest::user_input(vec![UserInput::Text {
+                text: user_text.to_string(),
+                text_elements: Vec::new(),
+            }])
+            .with_additional_context(BTreeMap::from([(
+                "prompt_timestamp".to_string(),
+                AdditionalContextEntry {
+                    value: prompt_timestamp.to_string(),
+                    kind: AdditionalContextKind::Application,
+                },
+            )])),
+        )
+        .await?;
+    wait_for_event_match(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_)).then_some(())
+    })
+    .await;
+
+    let request = request.single_request();
+    assert_eq!(
+        request
+            .message_input_texts("developer")
+            .into_iter()
+            .filter(|text| text.starts_with("<prompt_timestamp>"))
+            .collect::<Vec<_>>(),
+        vec![format!(
+            "<prompt_timestamp>{prompt_timestamp}</prompt_timestamp>"
+        )]
+    );
+    assert_eq!(request.message_input_texts("user"), vec![user_text]);
+
+    test.codex.flush_rollout().await?;
+    let rollout_path = test.codex.rollout_path().expect("rollout path");
+    let rollout = std::fs::read_to_string(rollout_path)?;
+    let mut persisted_timestamp_index = None;
+    let mut persisted_user_text_index = None;
+    for (index, line) in rollout.lines().enumerate() {
+        let line = codex_rollout::parse_rollout_line(line)?;
+        let RolloutItem::ResponseItem(envelope) = line.item else {
+            continue;
+        };
+        let ResponseItem::Message {
+            role,
+            content,
+            internal_chat_message_metadata_passthrough,
+            ..
+        } = envelope.item
+        else {
+            continue;
+        };
+        for content_item in content {
+            let ContentItem::InputText { text } = content_item else {
+                continue;
+            };
+            if role == "developer"
+                && text == format!("<prompt_timestamp>{prompt_timestamp}</prompt_timestamp>")
+            {
+                assert!(
+                    internal_chat_message_metadata_passthrough
+                        .as_ref()
+                        .and_then(|metadata| metadata.create_time.as_ref())
+                        .is_some()
+                );
+                persisted_timestamp_index = Some(index);
+            }
+            if role == "user" && text == user_text {
+                persisted_user_text_index = Some(index);
+            }
+        }
+    }
+
+    assert!(
+        persisted_timestamp_index.expect("persisted prompt timestamp")
+            < persisted_user_text_index.expect("persisted original user text")
+    );
+
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn additional_context_is_model_visible_but_not_a_user_message_item() -> Result<()> {

@@ -129,6 +129,7 @@ mod daybreak;
 mod experimental_features;
 mod permission_discovery;
 mod pets;
+mod prompt_timestamp;
 mod worktree_browser;
 pub use custom_terminal::Terminal;
 mod assistant_directives;

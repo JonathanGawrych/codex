@@ -624,6 +624,8 @@ pub(crate) struct ChatWidget {
     clipboard_lease: Option<crate::clipboard_copy::ClipboardLease>,
     copy_last_response_binding: Vec<KeyBinding>,
     running_commands: HashMap<String, RunningCommand>,
+    history_item_started_at_ms: HashMap<String, i64>,
+    history_cell_created_at_ms: Option<i64>,
     collab_agent_metadata: HashMap<ThreadId, AgentMetadata>,
     pending_collab_spawn_requests: HashMap<String, multi_agents::SpawnRequestSummary>,
     suppressed_exec_calls: HashSet<String>,
@@ -1215,9 +1217,13 @@ impl ChatWidget {
     }
 
     fn flush_active_cell(&mut self) {
-        if let Some(active) = self.transcript.take_active_cell() {
+        if let Some((active, created_at_ms)) = self.transcript.take_active_cell_with_created_at() {
             self.transcript.needs_final_message_separator = true;
-            self.app_event_tx.send(AppEvent::InsertHistoryCell(active));
+            self.app_event_tx
+                .send(AppEvent::InsertHistoryCell(history_cell::with_created_at(
+                    active,
+                    created_at_ms,
+                )));
             self.request_pending_usage_output_insertion();
         }
     }
@@ -1273,7 +1279,11 @@ impl ChatWidget {
         {
             self.flush_completed_command_activity();
         }
-        self.app_event_tx.send(AppEvent::InsertHistoryCell(cell));
+        self.app_event_tx
+            .send(AppEvent::InsertHistoryCell(history_cell::with_created_at(
+                cell,
+                self.history_cell_created_at_ms,
+            )));
     }
 
     fn enter_review_mode_with_hint(&mut self, hint: String, from_replay: bool) {
@@ -1324,7 +1334,7 @@ impl ChatWidget {
                     mention_bindings: mention_bindings_from_user_inputs(items, &display.message),
                     pending_pastes: Vec::new(),
                 });
-            self.on_user_message_display(display);
+            self.on_user_message_display(display, self.history_cell_created_at_ms);
             return;
         }
 
@@ -1342,23 +1352,25 @@ impl ChatWidget {
                 self.refresh_pending_input_preview();
                 let pending_display =
                     user_message_display_for_history(pending.user_message, &pending.history_record);
-                self.on_user_message_display(pending_display);
+                self.on_user_message_display(pending_display, self.history_cell_created_at_ms);
             } else if self.last_rendered_user_message_display.as_ref() != Some(&display) {
                 tracing::warn!(
                     "pending steer matched receipt but queue was empty when rendering committed user message"
                 );
-                self.on_user_message_display(display);
+                self.on_user_message_display(display, self.history_cell_created_at_ms);
             }
         } else if !self.review.is_review_mode
             && self.last_rendered_user_message_display.as_ref() != Some(&display)
         {
-            self.on_user_message_display(display);
+            self.on_user_message_display(display, self.history_cell_created_at_ms);
         }
     }
 
-    fn on_user_message_display(&mut self, display: UserMessageDisplay) {
+    fn on_user_message_display(&mut self, display: UserMessageDisplay, created_at_ms: Option<i64>) {
         self.transcript.last_status_copy_targets = None;
         self.last_rendered_user_message_display = Some(display.clone());
+        let previous_created_at_ms = self.history_cell_created_at_ms;
+        self.history_cell_created_at_ms = created_at_ms;
         if !display.message.trim().is_empty()
             || !display.text_elements.is_empty()
             || !display.local_images.is_empty()
@@ -1371,6 +1383,7 @@ impl ChatWidget {
                 display.remote_image_urls,
             ));
         }
+        self.history_cell_created_at_ms = previous_created_at_ms;
 
         // User messages reset separator state so the next agent response doesn't add a stray break.
         self.transcript.needs_final_message_separator = false;
@@ -1407,14 +1420,18 @@ impl ChatWidget {
 
     /// Mark the active cell as failed (✗) and flush it into history.
     fn finalize_active_cell_as_failed(&mut self) {
-        if let Some(mut cell) = self.transcript.take_active_cell() {
+        if let Some((mut cell, created_at_ms)) = self.transcript.take_active_cell_with_created_at()
+        {
             // Insert finalized cell into history and keep grouping consistent.
             if let Some(exec) = cell.as_any_mut().downcast_mut::<ExecCell>() {
                 exec.mark_failed();
             } else if let Some(tool) = cell.as_any_mut().downcast_mut::<McpToolCallCell>() {
                 tool.mark_failed();
             }
+            let previous_created_at_ms = self.history_cell_created_at_ms;
+            self.history_cell_created_at_ms = created_at_ms;
             self.add_boxed_history(cell);
+            self.history_cell_created_at_ms = previous_created_at_ms;
             self.request_pending_usage_output_insertion();
         }
     }

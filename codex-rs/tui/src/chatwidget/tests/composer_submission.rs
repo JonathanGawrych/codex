@@ -1,6 +1,7 @@
 use super::*;
 use crate::app_event::ConnectorsSnapshot;
 use crate::history_cell::ThreadRecapLoadingCell;
+use crate::test_support::normalize_snapshot_times;
 use codex_protocol::models::ManagedFileSystemPermissions;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
@@ -50,6 +51,55 @@ async fn user_submission_does_not_commit_recap_loading_to_history() {
         }
     }
     assert!(saw_user_message);
+}
+
+#[tokio::test]
+async fn live_user_submission_uses_prompt_submission_timestamp() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    while rx.try_recv().is_ok() {}
+
+    chat.submit_user_message(UserMessage::from("live timestamp prompt"));
+
+    let mut user_cell = None;
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            AppEvent::InsertHistoryCell(cell)
+                if cell
+                    .raw_lines()
+                    .iter()
+                    .any(|line| line.to_string().contains("live timestamp prompt")) =>
+            {
+                user_cell = Some(cell);
+            }
+            _ => {}
+        }
+    }
+
+    let AppCommand::UserTurn {
+        prompt_submitted_at,
+        ..
+    } = next_submit_op(&mut op_rx)
+    else {
+        unreachable!("next_submit_op only returns a user turn");
+    };
+    let expected_time = chrono::DateTime::parse_from_rfc3339(&prompt_submitted_at)
+        .expect("prompt submission timestamp should be RFC 3339")
+        .format("%-I:%M %p")
+        .to_string();
+    let rendered = user_cell
+        .expect("user prompt should be inserted into history")
+        .display_lines(/*width*/ 80)
+        .into_iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+
+    assert!(
+        rendered
+            .first()
+            .is_some_and(|line| line.ends_with(&expected_time)),
+        "rendered prompt did not end with {expected_time:?}: {rendered:?}"
+    );
 }
 
 #[tokio::test]
@@ -1679,10 +1729,10 @@ async fn output_free_ctrl_c_interrupt_keeps_prompt_and_opens_blank_composer() {
     assert!(chat.bottom_pane.composer_is_empty());
     insta::assert_snapshot!(
         "output_free_ctrl_c_interrupt_keeps_prompt_and_blank_composer",
-        format!(
+        normalize_snapshot_times(&format!(
             "history:\n{interrupted_history}\ncomposer:\n{}",
             chat.bottom_pane.composer_text()
-        )
+        ))
     );
 }
 
@@ -2308,7 +2358,10 @@ async fn task_mention_submission_and_transcript_preserve_the_visible_title() {
             .map(|line| line.to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        assert_chatwidget_snapshot!("task_mention_transcript", rendered);
+        assert_chatwidget_snapshot!(
+            "task_mention_transcript",
+            normalize_snapshot_times(&rendered)
+        );
     }
 }
 

@@ -678,6 +678,7 @@ impl App {
             AppCommand::UserTurn {
                 client_user_message_id,
                 items,
+                prompt_submitted_at,
                 cwd,
                 approval_policy,
                 approvals_reviewer,
@@ -701,6 +702,7 @@ impl App {
                                 steer_turn_id.clone(),
                                 client_user_message_id.clone(),
                                 items.to_vec(),
+                                prompt_submitted_at,
                             )
                             .await
                         {
@@ -807,6 +809,7 @@ impl App {
                             thread_id,
                             client_user_message_id.clone(),
                             items.to_vec(),
+                            prompt_submitted_at,
                             cwd.clone(),
                             turn_approval_policy,
                             turn_approvals_reviewer,
@@ -1350,23 +1353,55 @@ impl App {
         Ok(())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) async fn enqueue_primary_thread_session(
         &mut self,
         session: ThreadSessionState,
         turns: Vec<Turn>,
     ) -> Result<()> {
-        self.enqueue_primary_thread_session_with_presentation(
+        self.enqueue_primary_thread_session_with_created_at(
             session,
             turns,
+            HashMap::new(),
             ThreadAttachPresentation::SessionLineage,
         )
         .await
     }
 
+    pub(super) async fn enqueue_primary_started_thread(
+        &mut self,
+        started: AppServerStartedThread,
+    ) -> Result<()> {
+        self.enqueue_primary_thread_session_with_created_at(
+            started.session,
+            started.turns,
+            started.item_created_at_ms,
+            ThreadAttachPresentation::SessionLineage,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
     pub(super) async fn enqueue_primary_thread_session_with_presentation(
         &mut self,
         session: ThreadSessionState,
         turns: Vec<Turn>,
+        presentation: ThreadAttachPresentation,
+    ) -> Result<()> {
+        self.enqueue_primary_thread_session_with_created_at(
+            session,
+            turns,
+            HashMap::new(),
+            presentation,
+        )
+        .await
+    }
+
+    pub(super) async fn enqueue_primary_thread_session_with_created_at(
+        &mut self,
+        session: ThreadSessionState,
+        turns: Vec<Turn>,
+        item_created_at_ms: HashMap<String, i64>,
         presentation: ThreadAttachPresentation,
     ) -> Result<()> {
         if let Err(err) = self
@@ -1393,6 +1428,8 @@ impl App {
 
         let thread_id = session.thread_id;
         self.pending_server_profiles.remove(&thread_id);
+        self.thread_item_created_at_ms
+            .insert(thread_id, item_created_at_ms);
         if self.primary_thread_id != Some(thread_id) {
             self.recap.reset_for_new_thread(Instant::now());
         }
@@ -1436,8 +1473,15 @@ impl App {
         self.recap.seed_from_turns(&turns, now);
         self.schedule_recap_check(thread_id, now);
 
-        self.chat_widget
-            .replay_thread_turns(turns, ReplayKind::ResumeInitialMessages);
+        let item_created_at_ms = match self.thread_item_created_at_ms.get(&thread_id) {
+            Some(item_created_at_ms) => item_created_at_ms,
+            None => unreachable!("thread item timestamps were inserted before replay"),
+        };
+        self.chat_widget.replay_thread_turns_with_created_at(
+            turns,
+            ReplayKind::ResumeInitialMessages,
+            item_created_at_ms,
+        );
         if should_buffer_initial_replay {
             self.app_event_tx
                 .send(AppEvent::EndInitialHistoryReplayBuffer);
@@ -1560,7 +1604,14 @@ impl App {
         if started.blocks_direct_input {
             self.agent_navigation.mark_parent_owned(thread_id);
         }
-        let AppServerStartedThread { session, turns, .. } = started;
+        let AppServerStartedThread {
+            session,
+            turns,
+            item_created_at_ms,
+            ..
+        } = started;
+        self.thread_item_created_at_ms
+            .insert(thread_id, item_created_at_ms);
         if let Some(channel) = self.thread_event_channels.get(&thread_id) {
             let mut store = channel.store.lock().await;
             store.set_session(session.clone(), turns.clone());
@@ -1711,8 +1762,16 @@ impl App {
             },
         );
         if !snapshot.turns.is_empty() {
-            self.chat_widget
-                .replay_thread_turns(snapshot.turns, ReplayKind::ThreadSnapshot);
+            let no_item_timestamps = HashMap::new();
+            let item_created_at_ms = self
+                .active_thread_id
+                .and_then(|thread_id| self.thread_item_created_at_ms.get(&thread_id))
+                .unwrap_or(&no_item_timestamps);
+            self.chat_widget.replay_thread_turns_with_created_at(
+                snapshot.turns,
+                ReplayKind::ThreadSnapshot,
+                item_created_at_ms,
+            );
         }
         for (event, changes) in snapshot.events.into_iter().zip(request_changes) {
             if suppress_replay_notices && replay_filter::event_is_notice(&event) {

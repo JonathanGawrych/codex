@@ -34,6 +34,7 @@ pub(super) struct StatusCopySource {
 #[derive(Default)]
 pub(super) struct TranscriptState {
     pub(super) active_cell: Option<Box<dyn HistoryCell>>,
+    pub(super) active_cell_created_at_ms: Option<i64>,
     /// Monotonic-ish counter used to invalidate transcript overlay caching.
     pub(super) active_cell_revision: u64,
     /// One bounded entry shared by layout and paint across unchanged active-cell frames.
@@ -84,10 +85,20 @@ impl TranscriptState {
     /// Remove the active cell and invalidate its layout before its address can be reused.
     pub(super) fn take_active_cell(&mut self) -> Option<Box<dyn HistoryCell>> {
         let active_cell = self.active_cell.take();
+        self.active_cell_created_at_ms = None;
         if active_cell.is_some() {
             self.active_cell_layout.set(None);
         }
         active_cell
+    }
+
+    pub(super) fn take_active_cell_with_created_at(
+        &mut self,
+    ) -> Option<(Box<dyn HistoryCell>, Option<i64>)> {
+        let active_cell = self.active_cell.take()?;
+        let created_at_ms = self.active_cell_created_at_ms.take();
+        self.active_cell_layout.set(None);
+        Some((active_cell, created_at_ms))
     }
 
     pub(super) fn record_agent_markdown(&mut self, markdown: String, source: String) {

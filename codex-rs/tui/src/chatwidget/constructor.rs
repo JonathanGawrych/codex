@@ -170,6 +170,8 @@ impl ChatWidget {
             clipboard_lease: None,
             copy_last_response_binding,
             running_commands: HashMap::new(),
+            history_item_started_at_ms: HashMap::new(),
+            history_cell_created_at_ms: None,
             collab_agent_metadata: HashMap::new(),
             pending_collab_spawn_requests: HashMap::new(),
             suppressed_exec_calls: HashSet::new(),

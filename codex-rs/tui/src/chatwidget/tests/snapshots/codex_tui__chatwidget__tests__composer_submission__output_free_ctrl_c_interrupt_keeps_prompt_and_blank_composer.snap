@@ -1,9 +1,9 @@
 ---
 source: tui/src/chatwidget/tests/composer_submission.rs
-expression: "format!(\"history:\\n{interrupted_history}\\ncomposer:\\n{}\",\nchat.bottom_pane.composer_text())"
+expression: "normalize_snapshot_times(&format!(\"history:\\n{interrupted_history}\\ncomposer:\\n{}\",\nchat.bottom_pane.composer_text()))"
 ---
 history:
-
+                                                                          <TIME>
 › revise this prompt
 
 

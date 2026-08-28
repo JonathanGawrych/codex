@@ -7,6 +7,7 @@ use crate::app_server_session::HISTORY_ITEM_PAGE_LIMIT;
 use crate::app_server_session::thread_items_page_params;
 use crate::history_cell::SessionInfoCell;
 use crate::history_cell::UserHistoryCell;
+use crate::history_cell::with_created_at_arc;
 use crate::pager_overlay::TranscriptHistoryState;
 use crate::thread_transcript::RawReasoningVisibility;
 use crate::thread_transcript::thread_items_to_transcript_cells;
@@ -85,9 +86,15 @@ impl App {
                 store.turns.clone(),
             )
         };
-        let mut items = app_server
+        let mut entries = app_server
             .apply_older_history_page(thread_id, cursor, page, &mut turns)
             .await?;
+        let known_created_at_ms = self.thread_item_created_at_ms.entry(thread_id).or_default();
+        for entry in &entries {
+            if let Some(created_at_ms) = entry.created_at_ms.filter(|value| *value > 0) {
+                known_created_at_ms.insert(entry.item.id().to_string(), created_at_ms);
+            }
+        }
         let mut hidden_item_ids = HashSet::new();
         let mut review_mode = false;
         for (index, turn) in turns.iter().enumerate() {
@@ -182,7 +189,7 @@ impl App {
                 }
             }
         }
-        items.retain(|item| !hidden_item_ids.contains(item.id()));
+        entries.retain(|entry| !hidden_item_ids.contains(entry.item.id()));
         {
             let mut store = store.lock().await;
             turns.retain_mut(|turn| {
@@ -199,13 +206,20 @@ impl App {
             });
             store.turns.splice(0..0, turns);
         }
-        let cells = thread_items_to_transcript_cells(
-            Some(thread_id),
-            &cwd,
-            items,
-            visibility,
-            Some(&self.config),
-        );
+        let cells = entries
+            .into_iter()
+            .flat_map(|entry| {
+                thread_items_to_transcript_cells(
+                    Some(thread_id),
+                    &cwd,
+                    std::iter::once(entry.item),
+                    visibility,
+                    Some(&self.config),
+                )
+                .into_iter()
+                .map(move |cell| with_created_at_arc(cell, entry.created_at_ms))
+            })
+            .collect::<Vec<_>>();
         if self.backtrack.overlay_preview_active {
             self.backtrack.nth_user_message = self.backtrack.nth_user_message.saturating_add(
                 cells

@@ -415,6 +415,7 @@ fn thread_items_list_round_trips() {
     let response = ThreadItemsListResponse {
         data: vec![ThreadItemEntry {
             turn_id: "turn_456".to_string(),
+            created_at_ms: Some(1_725_000_000_123),
             item: ThreadItem::ContextCompaction {
                 id: "item_1".to_string(),
             },
@@ -428,6 +429,7 @@ fn thread_items_list_round_trips() {
         json!({
             "data": [{
                 "turnId": "turn_456",
+                "createdAtMs": 1_725_000_000_123_i64,
                 "item": {"type": "contextCompaction", "id": "item_1"},
             }],
             "nextCursor": null,

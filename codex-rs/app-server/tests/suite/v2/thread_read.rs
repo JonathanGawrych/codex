@@ -1824,6 +1824,7 @@ async fn paginated_history_lists_and_legacy_reads_use_projected_turns_and_items(
         SortDirection::Desc,
     )
     .await?;
+    assert!(data.iter().all(|entry| entry.created_at_ms.is_some()));
     assert_eq!(
         data.into_iter()
             .map(|entry| entry.item.id().to_string())

@@ -1,5 +1,6 @@
 use super::*;
 use crate::chatwidget::UserMessage;
+use crate::test_support::normalize_snapshot_times;
 use codex_app_server_protocol::CodexErrorInfo;
 use codex_app_server_protocol::ErrorNotification;
 use codex_app_server_protocol::ThreadGoalStatus;
@@ -178,7 +179,8 @@ async fn turn_start_failure_is_shown_without_exiting() -> Result<()> {
         )))
         .collect::<Vec<_>>()
         .join("\n");
-    insta::assert_snapshot!(transcript, @r"
+    insta::assert_snapshot!(normalize_snapshot_times(&transcript), @"
+                                                                              <TIME>
     › hello
 
     ■ Failed to start turn: turn/start failed in TUI: turn/start failed: thread not found: 123e4567-e89b-12d3-a456-426614174000 (code -32600)

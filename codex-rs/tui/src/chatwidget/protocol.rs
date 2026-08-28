@@ -15,6 +15,66 @@ impl ChatWidget {
             return;
         }
 
+        if self.transcript.active_cell.is_none() {
+            self.transcript.active_cell_created_at_ms = None;
+        }
+        let previous_history_cell_created_at_ms = self.history_cell_created_at_ms;
+        self.history_cell_created_at_ms = match &notification {
+            ServerNotification::TurnStarted(_) | ServerNotification::TurnCompleted(_) => {
+                self.history_item_started_at_ms.clear();
+                None
+            }
+            ServerNotification::ItemStarted(notification) => {
+                (notification.started_at_ms > 0).then(|| {
+                    self.history_item_started_at_ms.insert(
+                        notification.item.id().to_string(),
+                        notification.started_at_ms,
+                    );
+                    notification.started_at_ms
+                })
+            }
+            ServerNotification::ItemCompleted(notification) => self
+                .history_item_started_at_ms
+                .remove(notification.item.id())
+                .or_else(|| {
+                    (notification.completed_at_ms > 0).then_some(notification.completed_at_ms)
+                }),
+            ServerNotification::AgentMessageDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::PlanDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::ReasoningSummaryTextDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::ReasoningTextDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::ReasoningSummaryPartAdded(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::CommandExecutionOutputDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            ServerNotification::FileChangeOutputDelta(notification) => self
+                .history_item_started_at_ms
+                .get(&notification.item_id)
+                .copied(),
+            _ => None,
+        };
+        if self.transcript.active_cell.is_some()
+            && self.transcript.active_cell_created_at_ms.is_none()
+        {
+            self.transcript.active_cell_created_at_ms = self.history_cell_created_at_ms;
+        }
+
         let was_replaying_turn_completion = self.thread_usage.replaying_turn_completion;
         self.thread_usage.replaying_turn_completion = replay_kind.is_some();
         let from_replay = replay_kind.is_some();
@@ -282,6 +342,12 @@ impl ChatWidget {
             | ServerNotification::ThreadProjectUpdated(_) => {}
             ServerNotification::ContextCompacted(_) => {}
         }
+        if self.transcript.active_cell.is_some()
+            && self.transcript.active_cell_created_at_ms.is_none()
+        {
+            self.transcript.active_cell_created_at_ms = self.history_cell_created_at_ms;
+        }
+        self.history_cell_created_at_ms = previous_history_cell_created_at_ms;
         self.thread_usage.replaying_turn_completion = was_replaying_turn_completion;
     }
 

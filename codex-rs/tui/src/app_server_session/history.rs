@@ -1,5 +1,6 @@
 //! Bounded app-server transcript loading for resume, fork, and transcript views.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::AppServerSession;
@@ -12,7 +13,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::SortDirection;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadHistoryMode;
-use codex_app_server_protocol::ThreadItem;
+use codex_app_server_protocol::ThreadItemEntry;
 use codex_app_server_protocol::ThreadItemsListParams;
 use codex_app_server_protocol::ThreadItemsListResponse;
 use codex_app_server_protocol::ThreadTurnsListParams;
@@ -66,6 +67,7 @@ pub(crate) struct ThreadHistoryPagination {
     next_item_cursor: Option<String>,
     seen_turn_cursors: HashSet<String>,
     seen_item_cursors: HashSet<String>,
+    item_created_at_ms: HashMap<String, i64>,
     loading_older: bool,
 }
 
@@ -98,7 +100,7 @@ impl AppServerSession {
         cursor: &str,
         page: ThreadItemsListResponse,
         turns: &mut Vec<Turn>,
-    ) -> Result<Vec<ThreadItem>> {
+    ) -> Result<Vec<ThreadItemEntry>> {
         let Some(mut state) = self.history_pagination.get(&thread_id).cloned() else {
             return Ok(Vec::new());
         };
@@ -111,6 +113,13 @@ impl AppServerSession {
         state.loading_older = false;
         self.history_pagination.insert(thread_id, state);
         Ok(items)
+    }
+
+    pub(crate) fn item_created_at_ms(&self, thread_id: ThreadId) -> HashMap<String, i64> {
+        self.history_pagination
+            .get(&thread_id)
+            .map(|state| state.item_created_at_ms.clone())
+            .unwrap_or_default()
     }
 
     pub(crate) async fn thread_items_page(
@@ -157,7 +166,7 @@ impl AppServerSession {
         page: ThreadItemsListResponse,
         state: &mut ThreadHistoryPagination,
         turns: &mut Vec<Turn>,
-    ) -> Result<Vec<ThreadItem>> {
+    ) -> Result<Vec<ThreadItemEntry>> {
         state.next_item_cursor = advancing_cursor(
             state.next_item_cursor.as_deref(),
             page.next_cursor,
@@ -165,6 +174,11 @@ impl AppServerSession {
         );
         let mut items = Vec::new();
         for entry in page.data {
+            if let Some(created_at_ms) = entry.created_at_ms.filter(|value| *value > 0) {
+                state
+                    .item_created_at_ms
+                    .insert(entry.item.id().to_string(), created_at_ms);
+            }
             while !turns.iter().any(|turn| turn.id == entry.turn_id) {
                 let Some(cursor) = state.next_turn_cursor.take() else {
                     break;
@@ -182,7 +196,7 @@ impl AppServerSession {
             if let Some(turn) = turns.iter_mut().find(|turn| turn.id == entry.turn_id)
                 && !turn.items.iter().any(|item| item.id() == entry.item.id())
             {
-                items.push(entry.item.clone());
+                items.push(entry.clone());
                 turn.items.insert(/*index*/ 0, entry.item);
                 turn.items_view = TurnItemsView::Summary;
             }
@@ -296,7 +310,7 @@ impl AppServerSession {
 fn rendered_history_rows(
     thread_id: ThreadId,
     thread: &Thread,
-    items: Vec<ThreadItem>,
+    items: Vec<ThreadItemEntry>,
     config: &Config,
     local_settings: &crate::local_settings::LocalSettings,
     width: u16,
@@ -315,7 +329,7 @@ fn rendered_history_rows(
     thread_items_to_transcript_cells(
         Some(thread_id),
         &thread.cwd,
-        items,
+        items.into_iter().map(|entry| entry.item),
         visibility,
         Some(config),
     )

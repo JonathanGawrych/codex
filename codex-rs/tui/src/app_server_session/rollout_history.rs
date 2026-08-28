@@ -61,6 +61,7 @@ impl AppServerSession {
         .await
         .map_err(color_eyre::eyre::Report::msg)?;
         Ok(AppServerStartedThread {
+            item_created_at_ms: self.item_created_at_ms(thread_id),
             session,
             turns: thread.turns,
             blocks_direct_input: false,
@@ -193,6 +194,7 @@ impl AppServerSession {
             self.thread_params_mode(),
         )
         .await?;
+        started.item_created_at_ms = self.item_created_at_ms(thread_id);
         started.session.fork_parent_title = fork_parent_title;
         if self.task_tools_available(thread_id) {
             self.remember_task_tool_thread(thread_id);
