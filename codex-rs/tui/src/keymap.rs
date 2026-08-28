@@ -1672,8 +1672,12 @@ impl RuntimeKeymap {
                 ],
                 previous_permission_mode: default_bindings![],
                 next_permission_mode: default_bindings![],
-                edit_queued_message: default_bindings![shift(KeyCode::Left), alt(KeyCode::Up)],
-                prompt_stack_back: default_bindings![shift(KeyCode::Right), alt(KeyCode::Down)],
+                edit_queued_message: default_bindings![
+                    plain(KeyCode::Up),
+                    alt(KeyCode::Up),
+                    shift(KeyCode::Left)
+                ],
+                prompt_stack_back: default_bindings![alt(KeyCode::Down), shift(KeyCode::Right)],
                 skip_question: default_bindings![ctrl(KeyCode::Char(']'))],
             },
             composer: ComposerKeymap {
@@ -2941,7 +2945,11 @@ mod tests {
         );
         assert_eq!(
             runtime.chat.edit_queued_message,
-            vec![key_hint::shift(KeyCode::Left), key_hint::alt(KeyCode::Up)]
+            vec![
+                key_hint::plain(KeyCode::Up),
+                key_hint::alt(KeyCode::Up),
+                key_hint::shift(KeyCode::Left),
+            ]
         );
         assert_eq!(
             runtime.composer.history_search_previous,

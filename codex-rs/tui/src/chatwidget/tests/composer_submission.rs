@@ -1997,7 +1997,38 @@ async fn default_shortcuts_edit_most_recent_queued_message() {
 }
 
 #[tokio::test]
-async fn unbound_queued_message_edit_does_not_fall_back_to_alt_up() {
+async fn up_moves_running_turn_follow_up_back_to_composer() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    handle_turn_started(&mut chat, "turn-1");
+
+    chat.bottom_pane
+        .set_composer_text("first follow-up".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.bottom_pane
+        .set_composer_text("second follow-up".to_string(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(op_rx.try_recv().is_err());
+    assert!(chat.input_queue.pending_steers.is_empty());
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 2);
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+
+    assert_eq!(chat.bottom_pane.composer_text(), "second follow-up");
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+
+    assert_eq!(
+        chat.bottom_pane.composer_text(),
+        "first follow-up\nsecond follow-up"
+    );
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+}
+
+#[tokio::test]
+async fn unbound_queued_message_edit_does_not_fall_back_to_up() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let mut config = codex_config::types::TuiKeymap::default();
     config.chat.edit_queued_message = Some(codex_config::types::KeybindingsSpec::Many(Vec::new()));
@@ -2012,6 +2043,7 @@ async fn unbound_queued_message_edit_does_not_fall_back_to_alt_up() {
     assert!(!render_bottom_popup(&chat, /*width*/ 100).contains("edit last queued message"));
     chat.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT));
     chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
 
     assert!(chat.bottom_pane.composer_text().is_empty());
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
@@ -2045,11 +2077,10 @@ async fn queued_message_edit_hint_displays_configured_chords() {
     )));
 }
 
-/// Pressing Up to recall the most recent history entry and immediately queuing
-/// it while a task is running should always enqueue the same text, even when it
-/// is queued repeatedly.
+/// Pressing Up to recall and requeue the same prompt replaces the queued copy
+/// instead of creating multiple queued messages.
 #[tokio::test]
-async fn enqueueing_history_prompt_multiple_times_is_stable() {
+async fn requeueing_history_prompt_replaces_the_queued_copy() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
@@ -2062,7 +2093,8 @@ async fn enqueueing_history_prompt_multiple_times_is_stable() {
     chat.bottom_pane.set_task_running(/*running*/ true);
 
     for _ in 0..3 {
-        // Recall the prompt from history and ensure it is what we expect.
+        // The first Up recalls history. Later presses move the queued prompt
+        // back into the composer for editing.
         chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
         assert_eq!(chat.bottom_pane.composer_text(), "repeat me");
 
@@ -2070,7 +2102,7 @@ async fn enqueueing_history_prompt_multiple_times_is_stable() {
         chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
 
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 3);
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     for message in chat.input_queue.queued_user_messages.iter() {
         assert_eq!(message.text, "repeat me");
     }
