@@ -6,8 +6,8 @@
 
 use super::permissions_menu::permission_preset_description;
 use super::*;
-use crate::style::accent_color;
 use crate::bottom_pane::PermissionModeIndicator;
+use crate::style::accent_color;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 
 impl ChatWidget {
@@ -18,9 +18,9 @@ impl ChatWidget {
 
     pub(super) fn cycle_permission_mode(&mut self) {
         let modes = [
-            PermissionModeIndicator::Auto,
             PermissionModeIndicator::Manual,
             PermissionModeIndicator::AcceptEdits,
+            PermissionModeIndicator::Auto,
             PermissionModeIndicator::BypassPermissions,
         ];
         let current = self.permission_mode_indicator();
