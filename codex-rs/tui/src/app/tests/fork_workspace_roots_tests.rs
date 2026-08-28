@@ -9,6 +9,9 @@ use pretty_assertions::assert_eq;
 #[tokio::test]
 async fn remote_fork_dispatch_preserves_server_workspace_roots() -> Result<()> {
     let mut app = Box::pin(make_test_app()).await;
+    app.app_server_target = crate::AppServerTarget::Remote {
+        endpoint: crate::resolve_remote_addr("ws://127.0.0.1:8765")?,
+    };
     let client_home = tempdir()?;
     let server_home = tempdir()?;
     let workspace = tempdir()?;
@@ -68,7 +71,7 @@ async fn remote_fork_dispatch_preserves_server_workspace_roots() -> Result<()> {
     ))
     .await?;
 
-    assert_ne!(app.chat_widget.thread_id(), Some(source_thread_id));
+    assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
     assert_eq!(app.chat_widget.config_ref().workspace_roots, expected_roots);
     let fork_roots: Vec<_> = recorded_params(&requests, "thread/fork")
         .into_iter()

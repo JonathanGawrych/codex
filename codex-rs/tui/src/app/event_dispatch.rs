@@ -6,10 +6,10 @@
 use super::rate_limit_refresh::RateLimitReadStatus;
 use super::rate_limit_refresh::RateLimitRefreshOutcome;
 use super::resize_reflow::trailing_run_start;
-use super::session_lifecycle::ThreadAttachPresentation;
 use super::*;
 use crate::app_event::RecapTrigger;
 use crate::app_event::ThreadTitleDestination;
+use crate::app_server_session::ForkGoalContinuation;
 use crate::app_server_session::UnsupportedLegacyPermissionProfile;
 use crate::app_server_session::turn_permissions_overrides;
 use crate::config_update::format_config_error;
@@ -523,15 +523,7 @@ impl App {
                     self.render_chat_widget_frame(tui, screen_size)?;
                     self.refresh_in_memory_config_from_disk_best_effort("forking the thread")
                         .await;
-                    let mut fork_config = self.config.clone();
-                    if app_server.uses_remote_workspace() {
-                        fork_config.workspace_roots.clone_from(
-                            &self.chat_widget.config_ref().workspace_roots,
-                        );
-                    }
-                    fork_config.model = Some(self.chat_widget.current_model().to_string());
-                    fork_config.model_reasoning_effort =
-                        self.chat_widget.current_reasoning_effort();
+                    let fork_config = self.config_for_fork();
                     let selected_profile = self.confirmed_server_profile(thread_id);
                     match app_server.fork_thread_at(
                         &self.local_settings,
@@ -542,52 +534,45 @@ impl App {
                         ForkGoalContinuation::StartIfIdle,
                         selected_profile.as_ref(),
                     ).await {
-                        Ok(mut forked) => {
-                            let retained_input = from_locked_thread
-                                .then(|| self.chat_widget.capture_thread_input_state())
-                                .flatten();
-                            let name_error = if let Some(name) = name {
-                                match app_server
-                                    .thread_set_name(forked.session.thread_id, name.clone())
-                                    .await
-                                {
-                                    Ok(()) => {
-                                        forked.session.thread_name = Some(name);
-                                        None
-                                    }
-                                    Err(err) => {
-                                        Some(format!("Failed to name the forked session: {err}"))
-                                    }
-                                }
-                            } else {
-                                None
-                            };
-                            self.detach_current_thread_for_navigation(app_server, Some(forked.session.thread_id)).await;
-                            match self
-                                .replace_chat_widget_with_app_server_thread(
-                                    tui,
-                                    forked,
-                                    ThreadAttachPresentation::SessionLineage,
-                                    /*initial_user_message*/ None,
-                                )
+                        Ok(forked) => {
+                            let fork_name = super::fork_terminal::forked_thread_name(
+                                self.chat_widget.thread_name().as_deref(),
+                                name.as_deref(),
+                                /*detail*/ None,
+                            );
+                            let fork_thread_id = forked.session.thread_id;
+                            let name_error = app_server
+                                .thread_set_name(fork_thread_id, fork_name.clone())
                                 .await
+                                .err()
+                                .map(|err| format!("Failed to name the forked session: {err}"));
+                            let profile = self
+                                .loader_overrides
+                                .user_config_profile
+                                .as_ref()
+                                .map(|profile| profile.as_str().to_string());
+                            match super::fork_terminal::open_forked_session(
+                                fork_thread_id,
+                                profile.as_deref(),
+                                &self.app_server_target,
+                                /*draft*/ None,
+                            )
+                            .await
                             {
-                                Ok(()) => {
-                                    // Keep local input without replacing the fork's running state.
-                                    self.chat_widget.restore_reconnected_input(retained_input);
-                                    if let Some(err) = name_error {
-                                        self.chat_widget.add_error_message(err);
-                                    }
-                                    self.chat_widget.add_info_message(
-                                        "Fork created. You can continue here.".to_string(),
-                                        /*hint*/ None,
-                                    );
-                                }
-                                Err(err) => {
-                                    self.chat_widget.add_error_message(format!(
-                                        "Failed to attach to forked app-server thread: {err}"
-                                    ));
-                                }
+                                Ok(()) => self.chat_widget.add_plain_history_lines(vec![
+                                    vec![
+                                        "Forked ".into(),
+                                        fork_name.cyan(),
+                                        " in a new terminal.".into(),
+                                    ]
+                                    .into(),
+                                ]),
+                                Err(err) => self.chat_widget.add_error_message(format!(
+                                    "Failed to open the forked session in a new terminal: {err}"
+                                )),
+                            }
+                            if let Some(err) = name_error {
+                                self.chat_widget.add_error_message(err);
                             }
                         }
                         Err(err) => {
@@ -647,51 +632,19 @@ impl App {
                 };
                 let nth_user_message = crate::app_backtrack::user_count(&self.transcript_cells[..index]);
                 let selection: Result<(String, Vec<Turn>)> = async {
-                    let channel = self.thread_event_channels.get(&thread_id)
-                        .ok_or_else(|| color_eyre::eyre::eyre!("the selected thread is no longer available"))?;
-                    let (start_item, loaded_tail, latest_turn_id) = {
-                        let store = channel.store.lock().await;
-                        (
-                            store.turns.iter().find_map(|turn| turn.items.first()
-                                .map(|item| (turn.id.clone(), item.id().to_string()))),
-                            store.turns.last().map(|turn| turn.id.clone()),
-                            store.latest_turn_id.clone(),
-                        )
-                    };
-                    let mut thread = app_server.thread_read(thread_id, /*include_turns*/ false).await?;
-                    app_server.hydrate_initial_thread_history(
-                        &mut thread,
-                        /*turn_cursor*/ None,
-                        /*item_cursor*/ None,
-                        /*config*/ None,
-                        /*local_settings*/ None,
-                        start_item.as_ref().map(|(turn_id, _)| turn_id).or(loaded_tail.as_ref()).map_or(
-                            crate::app_server_session::HistoryHydrationScope::Complete,
-                            |turn_id| crate::app_server_session::HistoryHydrationScope::ThroughTurn(turn_id),
-                        ),
-                    ).await?;
-                    if thread.turns.last().map(|turn| &turn.id) != latest_turn_id.as_ref() {
-                        color_eyre::eyre::bail!("thread history changed; reload the session before editing this prompt");
-                    }
-                    // With no retained visible items, the next prompt follows the metadata-only tail.
-                    let start_item = start_item.or_else(|| loaded_tail.as_ref().and_then(|tail| {
-                        thread.turns.iter().position(|turn| &turn.id == tail).and_then(|index| {
-                            thread.turns[index + 1..].iter().find_map(|turn| turn.items.first()
-                                .map(|item| (turn.id.clone(), item.id().to_string())))
-                        })
-                    }));
+                    let (mut turns, start_item) = self.read_prompt_edit_history(app_server, thread_id).await?;
                     let before_turn_id = crate::app_backtrack::backtrack_revert_before_turn_id(
-                        &thread.turns,
+                        &turns,
                         start_item.as_ref(),
                         nth_user_message,
                         &mut prompt,
                     )?;
                     // Keep the store aligned with the displayed prefix, including retained live turns.
-                    let cut = thread.turns.iter().position(|turn| turn.id == before_turn_id)
+                    let cut = turns.iter().position(|turn| turn.id == before_turn_id)
                         .ok_or_else(|| color_eyre::eyre::eyre!("selected turn disappeared"))?;
-                    thread.turns.truncate(cut);
+                    turns.truncate(cut);
                     if let Some((turn_id, item_id)) = &start_item {
-                        for turn in &mut thread.turns {
+                        for turn in &mut turns {
                             if &turn.id == turn_id {
                                 if let Some(index) = turn.items.iter().position(|item| item.id() == item_id) {
                                     turn.items.drain(..index);
@@ -701,7 +654,7 @@ impl App {
                             turn.items.clear();
                         }
                     }
-                    Ok((before_turn_id, thread.turns))
+                    Ok((before_turn_id, turns))
                 }.await;
                 let (before_turn_id, retained_turns) = match selection {
                     Ok(selection) => selection,
@@ -806,7 +759,7 @@ impl App {
             }
             AppEvent::EditEarlierPrompt {
                 thread_id,
-                nth_user_message,
+                selected_cell,
                 prompt,
                 action,
             } => {
@@ -814,7 +767,7 @@ impl App {
                     tui,
                     app_server,
                     thread_id,
-                    nth_user_message,
+                    selected_cell,
                     prompt,
                     action,
                 )

@@ -193,6 +193,10 @@ impl App {
             Err(error.into())
         }
 
+        let startup_fork_draft = match fork_terminal::take_startup_fork_draft() {
+            Ok(draft) => draft,
+            Err(error) => return shutdown_on_startup_error(app_server, error).await,
+        };
         // Adopt actual launch ownership before constructing session-local preferences.
         tui.prepare_owned_screen(config.tui_fullscreen_transcript)?;
         let mut local_settings = crate::local_settings::LocalSettings::for_tui(&config, tui);
@@ -864,6 +868,9 @@ See the Codex keymap documentation for supported actions and examples."
                 CODEX_CLI_VERSION,
                 /*server_version*/ None,
             );
+        }
+        if let Some(draft) = startup_fork_draft {
+            app.chat_widget.restore_user_message_to_composer(draft);
         }
         if start_in_agents_overview {
             app.open_agents_overview(&app_server);

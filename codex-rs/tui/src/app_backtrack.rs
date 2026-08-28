@@ -145,7 +145,7 @@ impl App {
         let rollback_thread_id = selection.thread_id;
         let rollback_prompt = selection.prompt.clone();
         let fork_thread_id = selection.thread_id;
-        let fork_nth_user_message = selection.nth_user_message;
+        let fork_cell = Arc::clone(&self.transcript_cells[index]);
         let fork_prompt = selection.prompt;
         self.chat_widget.show_selection_view(SelectionViewParams {
             view_id: Some(BACKTRACK_ACTION_VIEW_ID),
@@ -178,7 +178,7 @@ impl App {
                     actions: vec![Box::new(move |tx| {
                         tx.send(AppEvent::EditEarlierPrompt {
                             thread_id: fork_thread_id,
-                            nth_user_message: fork_nth_user_message,
+                            selected_cell: Arc::clone(&fork_cell),
                             prompt: fork_prompt.clone(),
                             action: PromptBacktrackAction::Fork,
                         });
@@ -202,17 +202,6 @@ impl App {
             .add_error_message(format!("Failed to edit the selected prompt: {err:#}"));
     }
 
-    pub(crate) fn restore_backtrack_prompt_after_rollback_error(
-        &mut self,
-        prompt: UserMessage,
-        err: impl std::fmt::Display,
-    ) {
-        self.chat_widget.restore_user_message_to_composer(prompt);
-        self.chat_widget.add_error_message(format!(
-            "Failed to roll back before the selected prompt: {err}"
-        ));
-    }
-
     pub(crate) fn restore_backtrack_prompt_after_branch_error(
         &mut self,
         prompt: UserMessage,
@@ -221,17 +210,6 @@ impl App {
         self.chat_widget.restore_user_message_to_composer(prompt);
         self.chat_widget.add_error_message(format!(
             "Failed to branch before the selected prompt: {err}"
-        ));
-    }
-
-    pub(crate) fn restore_backtrack_prompt_after_rollback_refresh_error(
-        &mut self,
-        prompt: UserMessage,
-        err: impl std::fmt::Display,
-    ) {
-        self.chat_widget.restore_user_message_to_composer(prompt);
-        self.chat_widget.add_error_message(format!(
-            "The thread was rolled back, but Codex failed to refresh the prompt editor: {err}"
         ));
     }
 
@@ -572,11 +550,12 @@ pub(crate) struct BacktrackTurnTarget {
 
 pub(crate) fn backtrack_turn_target(
     turns: &[Turn],
+    start_item: Option<&(String, String)>,
     nth_user_message: usize,
     prompt: &mut UserMessage,
 ) -> Result<BacktrackTurnTarget> {
     let before_turn_id =
-        backtrack_revert_before_turn_id(turns, /*start_item*/ None, nth_user_message, prompt)?;
+        backtrack_revert_before_turn_id(turns, start_item, nth_user_message, prompt)?;
     #[expect(
         clippy::expect_used,
         reason = "The resolver returns a turn ID from this unchanged slice."

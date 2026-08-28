@@ -116,7 +116,7 @@ async fn external_writer_fork_shortcut_respects_input_ownership() -> Result<()> 
 }
 
 #[tokio::test]
-async fn external_writer_fork_opens_editable_thread_without_taking_source_lease() -> Result<()> {
+async fn external_writer_fork_preserves_source_view_and_opens_a_separate_thread() -> Result<()> {
     let (mut app, mut events, _operations) = make_test_app_with_channels().await;
     let codex_home = tempdir()?;
     app.config.codex_home = codex_home.path().to_path_buf().abs();
@@ -180,14 +180,14 @@ async fn external_writer_fork_opens_editable_thread_without_taking_source_lease(
     Box::pin(app.handle_event(&mut tui, &mut server, event)).await?;
 
     assert_eq!(app.chat_widget.capture_thread_input_state(), retained_input);
-    assert_ne!(app.chat_widget.thread_id(), Some(thread_id));
-    assert!(!app.chat_widget.is_external_writer_view());
+    assert_eq!(app.chat_widget.thread_id(), Some(thread_id));
+    assert!(app.chat_widget.is_external_writer_view());
     assert!(!app.chat_widget.fork_in_progress);
     let messages = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
             AppEvent::InsertHistoryCell(cell) => {
                 let text = lines_to_single_string(&cell.display_lines(/*width*/ 100));
-                text.contains("Fork created.").then_some(text)
+                text.contains(" in a new terminal.").then_some(text)
             }
             _ => None,
         })
@@ -203,16 +203,21 @@ async fn external_writer_fork_opens_editable_thread_without_taking_source_lease(
     for method in ["thread/resume", "turn/start", "turn/interrupt"] {
         assert!(recorded_params(&requests, method).is_empty(), "{method}");
     }
-    app.handle_tui_event(
-        &mut tui,
-        &mut server,
-        TuiEvent::Paste("Editable fork".into()),
-    )
-    .await?;
-    assert_eq!(
-        app.chat_widget.composer_text_with_pending(),
-        "Retained draftEditable fork"
-    );
+    let fork_id = recorded_params(&requests, "thread/name/set")[0]["threadId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let fork_id = ThreadId::from_string(&fork_id)?;
+    assert_ne!(fork_id, thread_id);
+    let fork = server
+        .resume_thread(
+            &app.local_settings,
+            app.config.clone(),
+            fork_id,
+            app.resume_model_settings(),
+        )
+        .await?;
+    assert_eq!(fork.session.forked_from_id, Some(thread_id));
     let error = server
         .resume_thread(
             &app.local_settings,

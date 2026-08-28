@@ -595,6 +595,7 @@ async fn owned_details_escape_interrupts_work_without_starting_backtrack() -> Re
     app.open_transcript_overlay(&mut tui);
     app.chat_widget.handle_server_notification(
         ServerNotification::TurnStarted(codex_app_server_protocol::TurnStartedNotification {
+            input_source: None,
             thread_id: thread_id.to_string(),
             turn: codex_app_server_protocol::Turn {
                 id: "active-turn".to_string(),
@@ -658,6 +659,8 @@ async fn owned_backtrack_keys_edit_the_selected_prompt_and_restore_compact_view(
         &mut tui,
         &TuiEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
     )?);
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let selection = std::iter::from_fn(|| events.try_recv().ok()).find_map(|event| match event {
         AppEvent::RevertSessionForPromptEdit {
             thread_id,
