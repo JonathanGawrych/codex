@@ -9,6 +9,7 @@ use crate::app_server_session::thread_items_page_params;
 use crate::history_cell::SessionHeaderHistoryCell;
 use crate::history_cell::SessionInfoCell;
 use crate::history_cell::UserHistoryCell;
+use crate::history_cell::with_created_at_arc;
 use crate::pager_overlay::TranscriptHistoryState;
 use crate::thread_transcript::RawReasoningVisibility;
 use crate::thread_transcript::thread_items_to_transcript_cells;
@@ -95,9 +96,16 @@ impl App {
                 store.turns.clone(),
             )
         };
-        let items = app_server
+        let entries = app_server
             .apply_older_history_page(thread_id, cursor, page, &mut turns)
             .await?;
+        let known_created_at_ms = self.thread_item_created_at_ms.entry(thread_id).or_default();
+        for entry in &entries {
+            if let Some(created_at_ms) = entry.created_at_ms.filter(|value| *value > 0) {
+                known_created_at_ms.insert(entry.item.id().to_string(), created_at_ms);
+            }
+        }
+        let items = entries.into_iter().map(|entry| entry.item).collect();
         let hidden_item_ids = hidden_review_item_ids(&turns);
         let visibility = if self.config.show_raw_agent_reasoning {
             RawReasoningVisibility::Visible
@@ -229,13 +237,23 @@ impl App {
         for (items, completed_turn) in completion::group_completed_turn_items(items, turns) {
             // Internal prompts stay invisible, but still separate adjacent tool groups.
             for visible in items.split(|item| hidden_item_ids.contains(item.id())) {
-                cells.extend(thread_items_to_transcript_cells(
-                    Some(thread_id),
-                    cwd,
-                    visible.iter().cloned(),
-                    visibility,
-                    Some(&self.config),
-                ));
+                let created_at_ms = visible.first().and_then(|item| {
+                    self.thread_item_created_at_ms
+                        .get(&thread_id)
+                        .and_then(|timestamps| timestamps.get(item.id()))
+                        .copied()
+                });
+                cells.extend(
+                    thread_items_to_transcript_cells(
+                        Some(thread_id),
+                        cwd,
+                        visible.iter().cloned(),
+                        visibility,
+                        Some(&self.config),
+                    )
+                    .into_iter()
+                    .map(|cell| with_created_at_arc(cell, created_at_ms)),
+                );
             }
             if let Some(turn) = completed_turn
                 && let Some(completion) = self

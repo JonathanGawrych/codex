@@ -3,24 +3,24 @@ source: tui/src/app/tests/pagination_completion_tests.rs
 expression: "afternoon_clock.replace_all(&snapshots.join(\"\\n\\n--- next overlapping page ---\\n\\n\"),\n\"at 2:$1 PM\",)"
 ---
 Earlier messages are available — press ctrl+t to view the full transcript
-• Middle answer
+• Middle answer                                                          2:32 PM
 
   Worked for 2m 5s • Sep 6, 2000 at 2:33 PM
 
 --- next overlapping page ---
 
-
+                                                                         2:32 PM
 › Oldest prompt
 
 
-• Oldest answer
+• Oldest answer                                                          2:32 PM
 
   Worked for 2m 5s • Sep 6, 2000 at 2:32 PM
 
-
+                                                                         2:32 PM
 › Middle prompt
 
 
-• Middle answer
+• Middle answer                                                          2:32 PM
 
   Worked for 2m 5s • Sep 6, 2000 at 2:33 PM

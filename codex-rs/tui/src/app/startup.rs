@@ -812,6 +812,7 @@ See the Codex keymap documentation for supported actions and examples."
             realtime_replay_order: VecDeque::new(),
             background_voice: None,
             background_voice_error: None,
+            thread_item_created_at_ms: HashMap::new(),
             temporary_structured_requests: HashMap::new(),
             pending_thread_titles: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
@@ -885,10 +886,7 @@ See the Codex keymap documentation for supported actions and examples."
                 app.chat_widget.show_external_writer_thread();
             }
             match startup_draft
-                .run_until(
-                    tui,
-                    app.enqueue_primary_thread_session(started.session, started.turns),
-                )
+                .run_until(tui, app.enqueue_primary_started_thread(started))
                 .await
             {
                 Ok(result) => result?,

@@ -7,7 +7,13 @@ export type ThreadItemEntry = {
 /**
  * Turn containing this item.
  */
-turnId: string, item: ThreadItem,
+turnId: string,
+/**
+ * Unix timestamp (in milliseconds) when this item was first persisted.
+ *
+ * Older app-server versions omit this field.
+ */
+createdAtMs: number | null, item: ThreadItem,
 /**
  * Unix timestamp (milliseconds) when the item started, if recorded by the producer.
  */

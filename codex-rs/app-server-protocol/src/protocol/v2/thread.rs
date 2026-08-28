@@ -1781,6 +1781,11 @@ pub enum ThreadItemsListAnchor {
 pub struct ThreadItemEntry {
     /// Turn containing this item.
     pub turn_id: String,
+    /// Unix timestamp (in milliseconds) when this item was first persisted.
+    ///
+    /// Older app-server versions omit this field.
+    #[ts(type = "number | null")]
+    pub created_at_ms: Option<i64>,
     pub item: ThreadItem,
     /// Unix timestamp (milliseconds) when the item started, if recorded by the producer.
     #[ts(type = "number | null")]

@@ -121,6 +121,7 @@ mod session;
 mod spoken_artifacts;
 mod startup_warnings;
 mod warnings;
+mod timestamped;
 
 pub(crate) use activity_details::ActivityDetails;
 pub(crate) use activity_preview::ActivityDisclosure;
@@ -147,6 +148,8 @@ pub(crate) use warnings::WarningId;
 pub(crate) use warnings::WarningKey;
 pub(crate) use warnings::warning_count;
 pub(crate) use warnings::warning_entries;
+pub(crate) use timestamped::with_created_at;
+pub(crate) use timestamped::with_created_at_arc;
 
 #[cfg(test)]
 mod tests;
@@ -367,10 +370,28 @@ impl Renderable for Box<dyn HistoryCell> {
 
 impl dyn HistoryCell {
     pub(crate) fn as_any(&self) -> &dyn Any {
-        self
+        if let Some(cell) = (self as &dyn Any).downcast_ref::<timestamped::TimestampedHistoryCell>()
+        {
+            cell.inner().as_any()
+        } else if let Some(cell) =
+            (self as &dyn Any).downcast_ref::<timestamped::ArcTimestampedHistoryCell>()
+        {
+            cell.inner().as_any()
+        } else {
+            self
+        }
     }
 
     pub(crate) fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
+        if (self as &dyn Any).is::<timestamped::TimestampedHistoryCell>() {
+            let Some(cell) =
+                (self as &mut dyn Any).downcast_mut::<timestamped::TimestampedHistoryCell>()
+            else {
+                unreachable!("timestamped history cell type was checked");
+            };
+            cell.inner_mut().as_any_mut()
+        } else {
+            self
+        }
     }
 }

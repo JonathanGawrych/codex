@@ -1,5 +1,6 @@
 ---
 source: tui/src/chatwidget/tests/composer_submission.rs
-expression: rendered
+expression: normalize_snapshot_times(&rendered)
 ---
+                                                                          <TIME>
 › Inspect @Review database migration

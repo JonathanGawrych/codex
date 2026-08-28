@@ -5306,6 +5306,7 @@ async fn primary_thread_ignores_child_mcp_startup_notifications() {
         AppServerStartedThread {
             session: test_thread_session(child_thread_id, test_path_buf("/tmp/child")),
             turns: Vec::new(),
+            item_created_at_ms: HashMap::new(),
             blocks_direct_input: false,
             task_tools_available: false,
         },
@@ -6017,6 +6018,7 @@ async fn make_test_app() -> Box<App> {
         realtime_replay_order: VecDeque::new(),
         background_voice: None,
         background_voice_error: None,
+        thread_item_created_at_ms: HashMap::new(),
         temporary_structured_requests: HashMap::new(),
         pending_thread_titles: HashMap::new(),
         thread_event_listener_tasks: HashMap::new(),
@@ -6132,6 +6134,7 @@ pub(super) async fn make_test_app_with_channels() -> (
             realtime_replay_order: VecDeque::new(),
             background_voice: None,
             background_voice_error: None,
+            thread_item_created_at_ms: HashMap::new(),
             temporary_structured_requests: HashMap::new(),
             pending_thread_titles: HashMap::new(),
             thread_event_listener_tasks: HashMap::new(),
@@ -8872,6 +8875,7 @@ async fn refreshed_snapshot_session_persists_resumed_turns() {
         AppServerStartedThread {
             session: resumed_session.clone(),
             turns: resumed_turns.clone(),
+            item_created_at_ms: HashMap::new(),
             blocks_direct_input: true,
             task_tools_available: false,
         },

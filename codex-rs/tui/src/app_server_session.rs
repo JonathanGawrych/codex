@@ -28,6 +28,7 @@ use crate::dynamic_tools_mcp::DynamicToolMcpServer;
 use crate::dynamic_tools_mcp::ThreadToolTransport;
 use crate::legacy_core::config::Config;
 use crate::local_settings::LocalSettings;
+use crate::prompt_timestamp::prompt_timestamp_additional_context;
 use crate::service_tier_resolution;
 use crate::session_state::MessageHistoryMetadata;
 use crate::session_state::ThreadSessionState;
@@ -370,6 +371,7 @@ impl ThreadParamsMode {
 pub(crate) struct AppServerStartedThread {
     pub(crate) session: ThreadSessionState,
     pub(crate) turns: Vec<Turn>,
+    pub(crate) item_created_at_ms: HashMap<String, i64>,
     pub(crate) blocks_direct_input: bool,
     pub(crate) task_tools_available: bool,
 }
@@ -1022,6 +1024,7 @@ impl AppServerSession {
             self.thread_params_mode(),
         )
         .await?;
+        started.item_created_at_ms = self.item_created_at_ms(started.session.thread_id);
         started.session.fork_parent_title = fork_parent.and_then(|thread| thread.name);
         if self.task_tools_available(thread_id) {
             started.task_tools_available = true;
@@ -1319,6 +1322,7 @@ impl AppServerSession {
         thread_id: ThreadId,
         client_user_message_id: String,
         items: Vec<UserInput>,
+        prompt_submitted_at: &str,
         cwd: PathBuf,
         approval_policy: Option<AskForApproval>,
         approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
@@ -1346,7 +1350,9 @@ impl AppServerSession {
                     input: items,
                     tool_output: None,
                     responsesapi_client_metadata: None,
-                    additional_context: None,
+                    additional_context: Some(prompt_timestamp_additional_context(
+                        prompt_submitted_at,
+                    )),
                     environments: None,
                     cwd: Some(cwd),
                     runtime_workspace_roots: Some(workspace_roots.to_vec()),
@@ -1402,6 +1408,7 @@ impl AppServerSession {
         turn_id: String,
         client_user_message_id: String,
         items: Vec<UserInput>,
+        prompt_submitted_at: &str,
     ) -> std::result::Result<TurnSteerResponse, TypedRequestError> {
         let request_id = self.next_request_id();
         self.client
@@ -1412,7 +1419,9 @@ impl AppServerSession {
                     client_user_message_id: Some(client_user_message_id),
                     input: items,
                     responsesapi_client_metadata: None,
-                    additional_context: None,
+                    additional_context: Some(prompt_timestamp_additional_context(
+                        prompt_submitted_at,
+                    )),
                     expected_turn_id: turn_id,
                 },
             })
@@ -2239,6 +2248,7 @@ async fn started_thread_from_start_response(
     Ok(AppServerStartedThread {
         session,
         turns: response.thread.turns,
+        item_created_at_ms: HashMap::new(),
         blocks_direct_input,
         task_tools_available: false,
     })
@@ -2262,6 +2272,7 @@ async fn started_thread_from_resume_response(
     Ok(AppServerStartedThread {
         session,
         turns: response.thread.turns,
+        item_created_at_ms: HashMap::new(),
         blocks_direct_input,
         task_tools_available: false,
     })
@@ -2285,6 +2296,7 @@ async fn started_thread_from_fork_response(
     Ok(AppServerStartedThread {
         session,
         turns: response.thread.turns,
+        item_created_at_ms: HashMap::new(),
         blocks_direct_input,
         task_tools_available: false,
     })

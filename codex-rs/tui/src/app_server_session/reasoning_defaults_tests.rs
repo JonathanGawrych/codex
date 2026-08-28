@@ -78,6 +78,7 @@ stream_max_retries = 0
                     text: "hello".to_string(),
                     text_elements: Vec::new(),
                 }],
+                "2026-09-30T12:00:00-06:00",
                 config.cwd.to_path_buf(),
                 /*approval_policy*/ None,
                 /*approvals_reviewer*/ None,

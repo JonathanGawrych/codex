@@ -12,6 +12,7 @@ fn started(model: &str) -> AppServerStartedThread {
     let mut session = test_thread_session(ThreadId::new(), test_path_buf("/tmp/project"));
     session.model = model.into();
     AppServerStartedThread {
+        item_created_at_ms: Default::default(),
         session,
         turns: Vec::new(),
         blocks_direct_input: false,

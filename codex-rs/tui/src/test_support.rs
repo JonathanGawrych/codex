@@ -9,6 +9,19 @@ pub(crate) use codex_utils_absolute_path::test_support::test_path_buf;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+#[path = "test_support_tests.rs"]
+mod tests;
+
+pub(crate) fn normalize_snapshot_times(text: &str) -> String {
+    regex_lite::Regex::new(r"(?m)\d{1,2}:\d{2} [AP]M$")
+        .unwrap_or_else(|error| panic!("invalid time regex: {error}"))
+        // Preserve the right edge when the hour changes between one and two digits.
+        .replace_all(text, |captures: &regex_lite::Captures<'_>| {
+            format!("{:>width$}", "<TIME>", width = captures[0].len())
+        })
+        .into_owned()
+}
+
 pub(crate) static TEST_MODEL_PRESETS: LazyLock<Vec<ModelPreset>> = LazyLock::new(|| {
     let mut response = bundled_models_response()
         .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));

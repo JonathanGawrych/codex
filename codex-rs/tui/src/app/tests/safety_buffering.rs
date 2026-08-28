@@ -3,6 +3,7 @@ use crate::app::safety_buffering::SafetyBufferedRetry;
 use crate::app::session_lifecycle::ThreadAttachPresentation;
 use crate::chatwidget::UserMessage;
 use crate::chatwidget::tests::helpers::normalize_completion_timestamps;
+use crate::test_support::normalize_snapshot_times;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::ModelSafetyBufferingUpdatedNotification;
 use codex_model_provider_info::ModelProviderInfo;
@@ -957,6 +958,7 @@ goals = true
             .skip_while(|line| !line.contains(RETRY_PROMPT))
             .collect::<Vec<_>>()
             .join("\n");
+        let rendered_retry = normalize_snapshot_times(&rendered_retry);
         insta::assert_snapshot!("safety_retry_committed_steer_history", rendered_retry);
     }
 

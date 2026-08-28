@@ -83,6 +83,7 @@ pub(crate) async fn make_test_app() -> App {
         realtime_replay_order: VecDeque::new(),
         background_voice: None,
         background_voice_error: None,
+        thread_item_created_at_ms: HashMap::new(),
         temporary_structured_requests: HashMap::new(),
         pending_thread_titles: HashMap::new(),
         thread_event_listener_tasks: HashMap::new(),

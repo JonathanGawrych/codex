@@ -119,6 +119,7 @@ pub(crate) enum AppCommand {
     UserTurn {
         client_user_message_id: String,
         items: Vec<UserInput>,
+        prompt_submitted_at: String,
         cwd: PathBuf,
         approval_policy: AskForApproval,
         approvals_reviewer: Option<ApprovalsReviewer>,
@@ -218,6 +219,7 @@ impl AppCommand {
     pub(crate) fn user_turn(
         client_user_message_id: String,
         items: Vec<UserInput>,
+        prompt_submitted_at: String,
         cwd: PathBuf,
         approval_policy: AskForApproval,
         active_permission_profile: Option<ActivePermissionProfile>,
@@ -232,6 +234,7 @@ impl AppCommand {
         Self::UserTurn {
             client_user_message_id,
             items,
+            prompt_submitted_at,
             cwd,
             approval_policy,
             approvals_reviewer: None,

@@ -1,10 +1,14 @@
 use super::*;
+use crate::test_support::normalize_snapshot_times;
 use pretty_assertions::assert_eq;
 
 fn normalize_compaction_snapshot(text: String) -> String {
     let elapsed = regex_lite::Regex::new(r"\b\d+(?:h \d+m \d+s|m \d+s|s)\b").unwrap();
     elapsed
-        .replace_all(&normalize_snapshot_paths(text), "<elapsed>")
+        .replace_all(
+            &normalize_snapshot_times(&normalize_snapshot_paths(text)),
+            "<elapsed>",
+        )
         .into_owned()
 }
 
@@ -195,7 +199,7 @@ async fn compaction_snapshot_restores_elapsed_time_and_clears_on_replayed_comple
         .into_iter()
         .flatten()
         .collect();
-    assert_eq!(lines_to_single_string(&lines).trim(), "• Context compacted");
+    insta::assert_snapshot!(normalize_snapshot_times(lines_to_single_string(&lines).trim()), @"• Context compacted                                                       <TIME>");
 }
 
 #[tokio::test]

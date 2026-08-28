@@ -99,6 +99,7 @@ async fn refreshed_active_reasoning_accepts_later_deltas_and_complete_summary() 
             app.apply_refreshed_snapshot_thread(
                 thread_id,
                 AppServerStartedThread {
+                    item_created_at_ms: Default::default(),
                     session,
                     turns: vec![turn],
                     blocks_direct_input: false,
