@@ -10,7 +10,6 @@ use super::session_lifecycle::ThreadAttachPresentation;
 use super::*;
 use crate::app_event::RecapTrigger;
 use crate::app_event::ThreadTitleDestination;
-use crate::app_server_session::ForkGoalContinuation;
 use crate::app_server_session::UnsupportedLegacyPermissionProfile;
 use crate::app_server_session::turn_permissions_overrides;
 use crate::config_update::format_config_error;
@@ -95,6 +94,7 @@ impl App {
                         ..
                     }
                     | AppEvent::RevertSessionForPromptEdit { .. }
+                    | AppEvent::EditEarlierPrompt { .. }
                     | AppEvent::SetThreadGoalDraft { .. }
                     | AppEvent::SetThreadGoalStatus {
                         status: ThreadGoalStatus::Active,
@@ -803,6 +803,22 @@ impl App {
                     self.chat_widget.emit_prompt_edit_thread_event();
                     tui.frame_requester().schedule_frame();
                 }
+            }
+            AppEvent::EditEarlierPrompt {
+                thread_id,
+                nth_user_message,
+                prompt,
+                action,
+            } => {
+                self.edit_earlier_prompt(
+                    tui,
+                    app_server,
+                    thread_id,
+                    nth_user_message,
+                    prompt,
+                    action,
+                )
+                .await;
             }
             AppEvent::BeginInitialHistoryReplayBuffer => {
                 self.begin_initial_history_replay_buffer();

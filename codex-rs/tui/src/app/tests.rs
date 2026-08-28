@@ -108,6 +108,7 @@ use crate::app_backtrack::BacktrackState;
 use crate::app_backtrack::nth_user_position;
 use crate::app_backtrack::user_count;
 use crate::app_event::HistoryBatchEntryResponse;
+use crate::app_event::PromptBacktrackAction;
 
 async fn drain_managed_worktree_start(app: &mut App, server: &mut AppServerSession) {
     if let Some((mode, name)) = app.pending_start_managed_worktree.take() {
@@ -7467,7 +7468,28 @@ fn active_turn_interrupt_race_extracts_actual_turn_id_from_mismatch() {
 }
 
 #[tokio::test]
-async fn backtrack_selection_preserves_selected_prompt_and_requests_branch() {
+async fn fresh_session_config_uses_current_service_tier() {
+    let mut app = make_test_app().await;
+    app.chat_widget.set_service_tier(Some(
+        codex_protocol::config_types::ServiceTier::Fast
+            .request_value()
+            .to_string(),
+    ));
+
+    let config = app.fresh_session_config();
+
+    assert_eq!(
+        config.service_tier,
+        Some(
+            codex_protocol::config_types::ServiceTier::Fast
+                .request_value()
+                .to_string()
+        )
+    );
+}
+
+#[tokio::test]
+async fn backtrack_selection_prompts_for_rollback_or_fork() {
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 
     let user_cell = |text: &str,
@@ -7613,9 +7635,15 @@ async fn backtrack_selection_preserves_selected_prompt_and_requests_branch() {
     assert_eq!(selection, expected);
 
     app.apply_backtrack_selection(selection);
+    assert_app_snapshot!(
+        "backtrack_action_picker",
+        render_bottom_popup(&app.chat_widget, /*width*/ 100)
+    );
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let event = std::iter::from_fn(|| app_event_rx.try_recv().ok())
         .find(|event| matches!(event, AppEvent::RevertSessionForPromptEdit { .. }))
-        .expect("prompt edit fork should be requested");
+        .expect("prompt edit rollback should be requested");
     assert_matches!(
         event,
         AppEvent::RevertSessionForPromptEdit {
@@ -7624,6 +7652,26 @@ async fn backtrack_selection_preserves_selected_prompt_and_requests_branch() {
             prompt,
         } if thread_id == expected.thread_id
             && Arc::ptr_eq(&selected_cell, &app.transcript_cells[nth_user_position(&app.transcript_cells, expected.nth_user_message).unwrap()])
+            && prompt == expected.prompt
+    );
+
+    app.apply_backtrack_selection(expected.clone());
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    app.chat_widget
+        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let event = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+        .find(|event| matches!(event, AppEvent::EditEarlierPrompt { .. }))
+        .expect("prompt edit fork should be requested");
+    assert_matches!(
+        event,
+        AppEvent::EditEarlierPrompt {
+            thread_id,
+            nth_user_message,
+            prompt,
+            action: PromptBacktrackAction::Fork,
+        } if thread_id == expected.thread_id
+            && nth_user_message == expected.nth_user_message
             && prompt == expected.prompt
     );
 

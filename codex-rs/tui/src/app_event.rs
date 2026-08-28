@@ -128,6 +128,12 @@ pub(crate) enum ThreadGoalSetMode {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptBacktrackAction {
+    Rollback,
+    Fork,
+}
+
 /// One absolute history offset returned by a batch lookup.
 ///
 /// Malformed rows retain their offset with `entry` set to `None` so the composer can cache the gap
@@ -609,6 +615,13 @@ pub(crate) enum AppEvent {
     FinishPromptRevert {
         thread_id: ThreadId,
         nth_user_message: usize,
+    },
+    /// Edit a selected earlier prompt using the action chosen by the user.
+    EditEarlierPrompt {
+        thread_id: ThreadId,
+        nth_user_message: usize,
+        prompt: UserMessage,
+        action: PromptBacktrackAction,
     },
 
     /// Request to exit the application.

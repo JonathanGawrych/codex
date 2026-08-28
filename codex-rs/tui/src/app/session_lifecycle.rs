@@ -21,6 +21,8 @@ pub(super) enum ThreadAttachPresentation {
     /// A fresh thread whose startup composer is already visible.
     FreshWithDraft,
     SessionLineage,
+    PromptEdit,
+    PromptRollback,
 }
 
 /// Reports whether a loaded-thread backfill completed and which descendants already had their

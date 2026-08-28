@@ -4,14 +4,14 @@
 //! mediates a key rendering boundary for the transcript overlay.
 //!
 //! Overall goal: keep the main chat view and the transcript overlay in sync while allowing users
-//! to edit an earlier prompt in place. Confirming a selection reverts before
-//! the selected turn and restores its prompt in the composer.
+//! to edit an earlier prompt. Confirming a selection asks whether to roll back the current
+//! thread or fork before the selected turn, then restores its prompt in the composer.
 //!
 //! Backtrack operates as a small state machine:
 //! - The first `Esc` in the main view "primes" the feature and captures a base thread id.
 //! - A subsequent `Esc` starts compact transcript browsing and highlights the latest user prompt.
 //! - Left/Right choose prompts, Ctrl+T toggles details, and Esc restores the browsing origin.
-//! - `Enter` requests a revert before the selected prompt and reopens it for editing.
+//! - `Enter` opens the rollback/fork selection. Confirming that selection reopens the prompt.
 //!
 //! Owned sessions use the shared transcript viewport for `Ctrl+T`; inline sessions retain the
 //! overlay. Both render committed cells and a live tail from the current `ChatWidget.active_cell`.
@@ -30,8 +30,11 @@ use std::sync::Arc;
 
 use crate::app::App;
 use crate::app_event::AppEvent;
+use crate::app_event::PromptBacktrackAction;
 use crate::app_server_session::AppServerSession;
 use crate::bottom_pane::LocalImageAttachment;
+use crate::bottom_pane::SelectionItem;
+use crate::bottom_pane::SelectionViewParams;
 use crate::chatwidget::ChatWidget;
 use crate::chatwidget::UserMessage;
 use crate::chatwidget::mention_bindings_from_user_inputs;
@@ -58,6 +61,7 @@ use crossterm::event::KeyEventKind;
 const NO_PREVIOUS_MESSAGE_TO_EDIT: &str = "No previous message to edit.";
 pub(crate) const SIDE_EDIT_PREVIOUS_UNAVAILABLE_MESSAGE: &str =
     "Editing previous prompts is unavailable in side conversations.";
+pub(crate) const BACKTRACK_ACTION_VIEW_ID: &str = "backtrack-action";
 
 /// Aggregates all backtrack-related state used by the App.
 #[derive(Default)]
@@ -78,7 +82,7 @@ pub(crate) struct BacktrackState {
     origin: Option<browsing::BrowsingOrigin>,
 }
 
-/// A user-visible backtrack choice that can be reopened in the current thread.
+/// A user-visible backtrack choice that can be reopened for editing.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BacktrackSelection {
     pub(crate) thread_id: ThreadId,
@@ -120,7 +124,7 @@ impl App {
         }
     }
 
-    /// Revert the current thread before the selected prompt.
+    /// Ask whether to roll back the current thread or fork it before the selected prompt.
     pub(crate) fn apply_backtrack_selection(&mut self, selection: BacktrackSelection) {
         if self.chat_widget.side_conversation_active() {
             self.reset_backtrack_state();
@@ -137,12 +141,55 @@ impl App {
         else {
             return;
         };
-        self.app_event_tx
-            .send(AppEvent::RevertSessionForPromptEdit {
-                thread_id: selection.thread_id,
-                selected_cell: Arc::clone(&self.transcript_cells[index]),
-                prompt: selection.prompt,
-            });
+        let rollback_cell = Arc::clone(&self.transcript_cells[index]);
+        let rollback_thread_id = selection.thread_id;
+        let rollback_prompt = selection.prompt.clone();
+        let fork_thread_id = selection.thread_id;
+        let fork_nth_user_message = selection.nth_user_message;
+        let fork_prompt = selection.prompt;
+        self.chat_widget.show_selection_view(SelectionViewParams {
+            view_id: Some(BACKTRACK_ACTION_VIEW_ID),
+            title: Some("Edit earlier prompt".to_string()),
+            subtitle: Some("Choose what happens to the current conversation.".to_string()),
+            items: vec![
+                SelectionItem {
+                    name: "Rollback".to_string(),
+                    description: Some(
+                        "Remove this prompt and every later turn from the current conversation"
+                            .to_string(),
+                    ),
+                    is_default: true,
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::RevertSessionForPromptEdit {
+                            thread_id: rollback_thread_id,
+                            selected_cell: Arc::clone(&rollback_cell),
+                            prompt: rollback_prompt.clone(),
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                },
+                SelectionItem {
+                    name: "Fork".to_string(),
+                    description: Some(
+                        "Keep this conversation unchanged and edit the prompt in a new conversation"
+                            .to_string(),
+                    ),
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::EditEarlierPrompt {
+                            thread_id: fork_thread_id,
+                            nth_user_message: fork_nth_user_message,
+                            prompt: fork_prompt.clone(),
+                            action: PromptBacktrackAction::Fork,
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                },
+            ],
+            initial_selected_idx: Some(0),
+            ..Default::default()
+        });
     }
 
     pub(crate) fn restore_backtrack_prompt_after_revert_error(
@@ -155,7 +202,40 @@ impl App {
             .add_error_message(format!("Failed to edit the selected prompt: {err:#}"));
     }
 
-    /// Show detailed history in the owned viewport or the inline session's transcript overlay.
+    pub(crate) fn restore_backtrack_prompt_after_rollback_error(
+        &mut self,
+        prompt: UserMessage,
+        err: impl std::fmt::Display,
+    ) {
+        self.chat_widget.restore_user_message_to_composer(prompt);
+        self.chat_widget.add_error_message(format!(
+            "Failed to roll back before the selected prompt: {err}"
+        ));
+    }
+
+    pub(crate) fn restore_backtrack_prompt_after_branch_error(
+        &mut self,
+        prompt: UserMessage,
+        err: impl std::fmt::Display,
+    ) {
+        self.chat_widget.restore_user_message_to_composer(prompt);
+        self.chat_widget.add_error_message(format!(
+            "Failed to branch before the selected prompt: {err}"
+        ));
+    }
+
+    pub(crate) fn restore_backtrack_prompt_after_rollback_refresh_error(
+        &mut self,
+        prompt: UserMessage,
+        err: impl std::fmt::Display,
+    ) {
+        self.chat_widget.restore_user_message_to_composer(prompt);
+        self.chat_widget.add_error_message(format!(
+            "The thread was rolled back, but Codex failed to refresh the prompt editor: {err}"
+        ));
+    }
+
+    /// Open transcript overlay (enters alternate screen and shows full transcript).
     pub(crate) fn open_transcript_overlay(&mut self, tui: &mut tui::Tui) {
         if tui.is_owned_screen() {
             self.transcript_view.set_presentation(
@@ -477,6 +557,39 @@ impl App {
             },
         })
     }
+}
+
+/// The persisted turn boundary for an earlier prompt edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BacktrackTurnTarget {
+    /// Turn excluded from the retained history.
+    pub(crate) before_turn_id: String,
+    /// Whether the loaded history contains a turn before `before_turn_id`.
+    pub(crate) has_loaded_turn_before: bool,
+    /// Number of loaded turns from `before_turn_id` through the current tail.
+    pub(crate) turns_to_remove: u32,
+}
+
+pub(crate) fn backtrack_turn_target(
+    turns: &[Turn],
+    nth_user_message: usize,
+    prompt: &mut UserMessage,
+) -> Result<BacktrackTurnTarget> {
+    let before_turn_id =
+        backtrack_revert_before_turn_id(turns, /*start_item*/ None, nth_user_message, prompt)?;
+    #[expect(
+        clippy::expect_used,
+        reason = "The resolver returns a turn ID from this unchanged slice."
+    )]
+    let turn_index = turns
+        .iter()
+        .position(|turn| turn.id == before_turn_id)
+        .expect("resolved prompt belongs to a loaded turn");
+    Ok(BacktrackTurnTarget {
+        before_turn_id,
+        has_loaded_turn_before: turn_index > 0,
+        turns_to_remove: u32::try_from(turns.len() - turn_index).unwrap_or(u32::MAX),
+    })
 }
 
 /// Find the persisted turn that contains a selected transcript prompt.

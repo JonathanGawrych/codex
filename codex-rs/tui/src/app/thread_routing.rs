@@ -1585,6 +1585,13 @@ impl App {
             | ThreadAttachPresentation::SessionLineage => {
                 self.chat_widget.handle_thread_session(session);
             }
+            ThreadAttachPresentation::PromptEdit => {
+                self.chat_widget.handle_prompt_edit_thread_session(session);
+            }
+            ThreadAttachPresentation::PromptRollback => {
+                self.chat_widget
+                    .handle_prompt_rollback_thread_session(session);
+            }
         }
         let should_buffer_initial_replay = !turns.is_empty();
         let replayed_final_items = realtime_delivery::completed_agent_items_from_turns(&turns);
