@@ -141,9 +141,7 @@ impl ChatWidget {
         let model_for_header = self.current_model().to_string();
         if matches!(
             display,
-            SessionConfiguredDisplay::Normal
-                | SessionConfiguredDisplay::PromptEdit
-                | SessionConfiguredDisplay::PromptRollback
+            SessionConfiguredDisplay::Normal | SessionConfiguredDisplay::PromptRollback
         ) {
             let startup_tooltip_override = self.startup_tooltip_override.take();
             let show_fast_status = self
@@ -207,16 +205,6 @@ impl ChatWidget {
         );
     }
 
-    pub(crate) fn handle_prompt_edit_thread_session(&mut self, session: ThreadSessionState) {
-        self.instruction_source_paths = session.instruction_source_paths.clone();
-        let fork_parent_title = session.fork_parent_title.clone();
-        self.on_session_configured_with_display_and_fork_parent_title(
-            session,
-            SessionConfiguredDisplay::PromptEdit,
-            fork_parent_title,
-        );
-    }
-
     pub(crate) fn handle_prompt_rollback_thread_session(&mut self, session: ThreadSessionState) {
         self.instruction_source_paths = session.instruction_source_paths.clone();
         self.on_session_configured_with_display_and_fork_parent_title(
@@ -267,18 +255,7 @@ impl ChatWidget {
         )));
     }
 
-    pub(crate) fn emit_prompt_edit_thread_event(&mut self) {
-        let line: Line<'static> = vec![
-            "• ".dim(),
-            "You’re continuing from this point in a new conversation".into(),
-        ]
-        .into();
-        self.app_event_tx.send(AppEvent::InsertHistoryCell(Box::new(
-            PlainHistoryCell::new(vec![line]),
-        )));
-    }
-
-    /// Update status surfaces before a confirmed manual rename's server notification arrives.
+    /// Make a confirmed manual rename visible before its queued server notification arrives.
     pub(crate) fn expect_manual_thread_name(&mut self, thread_id: ThreadId, name: String) {
         if self.thread_id == Some(thread_id) {
             self.thread_name = Some(name);

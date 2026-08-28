@@ -3774,22 +3774,50 @@ fn session_lifecycle_avoids_redundant_subagent_metadata_reads() -> Result<()> {
                 .await?;
 
                 assert!(matches!(control, AppRunControl::Continue));
-                assert_ne!(app.chat_widget.thread_id(), Some(root_thread_id));
-                let named_fork_id = app
-                    .chat_widget
-                    .thread_id()
-                    .expect("named fork should have a thread id");
-                assert_eq!(
-                    app.chat_widget.thread_name(),
-                    Some("Add User Fork".to_string())
-                );
-                // Forking may read the source metadata once when the response includes its parent
-                // id. It must not scan or backfill loaded threads for the newly created fork.
+                assert_eq!(app.chat_widget.thread_id(), Some(root_thread_id));
                 assert!(matches!(take_backfill_counts(&requests), (0, 0) | (0, 1)));
+                let mut named_fork_id = None;
+                for loaded_thread_id in app_server
+                    .thread_loaded_list(ThreadLoadedListParams {
+                        cursor: None,
+                        limit: None,
+                    })
+                    .await?
+                    .data
+                {
+                    let loaded_thread_id = ThreadId::from_string(&loaded_thread_id)?;
+                    if loaded_thread_id == root_thread_id || loaded_thread_id == child_thread_id {
+                        continue;
+                    }
+                    let loaded_thread = app_server
+                        .thread_read(loaded_thread_id, /*include_turns*/ false)
+                        .await?;
+                    if loaded_thread.name.as_deref() == Some("Add User Fork") {
+                        named_fork_id = Some(loaded_thread_id);
+                        break;
+                    }
+                }
+                let named_fork_id = named_fork_id.expect("named fork should be loaded");
                 let named_fork = app_server
                     .thread_read(named_fork_id, /*include_turns*/ false)
                     .await?;
                 assert_eq!(named_fork.name.as_deref(), Some("Add User Fork"));
+                let success = std::iter::from_fn(|| app_event_rx.try_recv().ok())
+                    .find_map(|event| match event {
+                        AppEvent::InsertHistoryCell(cell) => {
+                            let rendered =
+                                lines_to_single_string(&cell.display_lines(/*width*/ 80));
+                            rendered
+                                .contains("Forked Add User Fork")
+                                .then_some(rendered)
+                        }
+                        _ => None,
+                    })
+                    .expect("fork success history cell");
+                insta::assert_snapshot!(
+                    success,
+                    @"Forked Add User Fork in a new terminal."
+                );
                 take_backfill_counts(&requests);
 
                 let control = Box::pin(app.handle_event(
@@ -3802,7 +3830,7 @@ fn session_lifecycle_avoids_redundant_subagent_metadata_reads() -> Result<()> {
                 .await?;
 
                 assert!(matches!(control, AppRunControl::Continue));
-                assert_ne!(app.chat_widget.thread_id(), Some(named_fork_id));
+                assert_eq!(app.chat_widget.thread_id(), Some(root_thread_id));
                 let name_error = std::iter::from_fn(|| app_event_rx.try_recv().ok())
                     .find_map(|event| match event {
                         AppEvent::InsertHistoryCell(cell) => {

@@ -164,6 +164,11 @@ impl App {
             Err(error.into())
         }
 
+        let startup_fork_draft = match fork_terminal::take_startup_fork_draft() {
+            Ok(draft) => draft,
+            Err(error) => return shutdown_on_startup_error(app_server, error).await,
+        };
+
         fn render_startup_frame(app: &mut App, tui: &mut tui::Tui) -> Result<()> {
             app.chat_widget.pre_draw_tick();
             app.render_chat_widget_frame(tui, tui.terminal.last_known_screen_size)?;
@@ -742,6 +747,9 @@ See the Codex keymap documentation for supported actions and examples."
         };
         if !tui.is_terminal_focused() {
             app.recap.note_focus_lost(Instant::now());
+        }
+        if let Some(draft) = startup_fork_draft {
+            app.chat_widget.restore_user_message_to_composer(draft);
         }
         if start_in_agents_overview {
             app.open_agents_overview(&app_server);

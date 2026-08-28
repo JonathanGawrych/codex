@@ -70,6 +70,10 @@ pub(super) async fn run_main_inner(
             std::process::exit(1);
         }
     };
+    let fork_daemon_socket = std::env::var_os(crate::app::fork_terminal::FORK_DAEMON_SOCKET_ENV)
+        .map(AbsolutePathBuf::from_absolute_path)
+        .transpose()
+        .map_err(std::io::Error::other)?;
 
     let mut launch_loader_overrides = loader_overrides.clone();
     if let Some(profile_v2) = cli.config_profile_v2.as_ref() {
@@ -151,7 +155,8 @@ pub(super) async fn run_main_inner(
     let reuse_implicit_local_daemon = !cli.shared.worktree
         && !cli.oss
         && !workload_identity_selected
-        && (cli.agents_overview
+        && (fork_daemon_socket.is_some()
+            || cli.agents_overview
             || can_reuse_implicit_local_daemon(
                 &cli_kv_overrides,
                 &launch_loader_overrides,
@@ -190,7 +195,9 @@ pub(super) async fn run_main_inner(
     };
     let mut startup_draft = startup_draft::StartupDraft::new(initial_screen, session_action)?;
 
-    let default_daemon = if explicit_remote_endpoint.is_none() && reuse_implicit_local_daemon {
+    let default_daemon = if fork_daemon_socket.is_some() {
+        fork_daemon_socket
+    } else if explicit_remote_endpoint.is_none() && reuse_implicit_local_daemon {
         startup_draft
             .run_until(maybe_probe_default_daemon_socket(&codex_home))
             .await?

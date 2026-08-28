@@ -19,7 +19,6 @@ use std::collections::HashSet;
 #[derive(Clone, Copy)]
 pub(super) enum ThreadAttachPresentation {
     SessionLineage,
-    PromptEdit,
     PromptRollback,
 }
 

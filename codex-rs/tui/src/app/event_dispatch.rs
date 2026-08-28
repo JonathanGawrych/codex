@@ -6,10 +6,10 @@
 use super::rate_limit_refresh::RateLimitReadStatus;
 use super::rate_limit_refresh::RateLimitRefreshOutcome;
 use super::resize_reflow::trailing_run_start;
-use super::session_lifecycle::ThreadAttachPresentation;
 use super::*;
 use crate::app_event::RecapTrigger;
 use crate::app_event::ThreadTitleDestination;
+use crate::app_server_session::ForkGoalContinuation;
 use crate::app_server_session::UnsupportedLegacyPermissionProfile;
 use crate::app_server_session::turn_permissions_overrides;
 use crate::config_update::format_config_error;
@@ -353,12 +353,6 @@ impl App {
                     /*inc*/ 1,
                     &[("source", "slash_command")],
                 );
-                let summary = session_summary(
-                    self.chat_widget.token_usage(),
-                    self.chat_widget.thread_id(),
-                    self.chat_widget.thread_name(),
-                    self.chat_widget.rollout_path().as_deref(),
-                );
                 self.chat_widget
                     .add_plain_history_lines(vec!["/fork".magenta().into()]);
                 if let Some(thread_id) = self.chat_widget.thread_id() {
@@ -384,57 +378,45 @@ impl App {
                         ForkGoalContinuation::StartIfIdle,
                         selected_profile.as_ref(),
                     ).await {
-                        Ok(mut forked) => {
-                            let name_error = if let Some(name) = name {
-                                match app_server
-                                    .thread_set_name(forked.session.thread_id, name.clone())
-                                    .await
-                                {
-                                    Ok(()) => {
-                                        forked.session.thread_name = Some(name);
-                                        None
-                                    }
-                                    Err(err) => {
-                                        Some(format!("Failed to name the forked session: {err}"))
-                                    }
-                                }
-                            } else {
-                                None
-                            };
-                            self.shutdown_current_thread(app_server).await;
-                            match self
-                                .replace_chat_widget_with_app_server_thread(
-                                    tui,
-                                    forked,
-                                    ThreadAttachPresentation::SessionLineage,
-                                    /*initial_user_message*/ None,
-                                )
+                        Ok(forked) => {
+                            let fork_name = super::fork_terminal::forked_thread_name(
+                                self.chat_widget.thread_name().as_deref(),
+                                name.as_deref(),
+                                /*detail*/ None,
+                            );
+                            let fork_thread_id = forked.session.thread_id;
+                            let name_error = app_server
+                                .thread_set_name(fork_thread_id, fork_name.clone())
                                 .await
+                                .err()
+                                .map(|err| format!("Failed to name the forked session: {err}"));
+                            let profile = self
+                                .loader_overrides
+                                .user_config_profile
+                                .as_ref()
+                                .map(|profile| profile.as_str().to_string());
+                            match super::fork_terminal::open_forked_session(
+                                fork_thread_id,
+                                profile.as_deref(),
+                                &self.app_server_target,
+                                /*draft*/ None,
+                            )
+                            .await
                             {
-                                Ok(()) => {
-                                    if let Some(err) = name_error {
-                                        self.chat_widget.add_error_message(err);
-                                    }
-                                    if let Some(summary) = summary {
-                                        let mut lines: Vec<Line<'static>> = Vec::new();
-                                        if let Some(usage_line) = summary.usage_line {
-                                            lines.push(usage_line.into());
-                                        }
-                                        if let Some(command) = summary.resume_hint {
-                                            let spans = vec![
-                                                "To continue this session, run ".into(),
-                                                command.cyan(),
-                                            ];
-                                            lines.push(spans.into());
-                                        }
-                                        self.chat_widget.add_plain_history_lines(lines);
-                                    }
-                                }
-                                Err(err) => {
-                                    self.chat_widget.add_error_message(format!(
-                                        "Failed to attach to forked app-server thread: {err}"
-                                    ));
-                                }
+                                Ok(()) => self.chat_widget.add_plain_history_lines(vec![
+                                    vec![
+                                        "Forked ".into(),
+                                        fork_name.cyan(),
+                                        " in a new terminal.".into(),
+                                    ]
+                                    .into(),
+                                ]),
+                                Err(err) => self.chat_widget.add_error_message(format!(
+                                    "Failed to open the forked session in a new terminal: {err}"
+                                )),
+                            }
+                            if let Some(err) = name_error {
+                                self.chat_widget.add_error_message(err);
                             }
                         }
                         Err(err) => {

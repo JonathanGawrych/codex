@@ -7881,16 +7881,8 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
     .await?;
 
     assert!(matches!(control, AppRunControl::Continue));
-    let forked_thread_id = app
-        .chat_widget
-        .thread_id()
-        .expect("prompt edit should switch to a forked thread");
-    assert_ne!(forked_thread_id, source_thread_id);
-    assert_eq!(app.chat_widget.composer_text_with_pending(), prompt.text);
-    assert_eq!(
-        app.chat_widget.remote_image_urls(),
-        prompt.remote_image_urls
-    );
+    assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
+    assert!(app.chat_widget.composer_text_with_pending().is_empty());
     assert_eq!(std::fs::read_to_string(&source_path)?, source_before);
     assert_eq!(
         app_server
@@ -7902,6 +7894,19 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
             .collect::<Vec<_>>(),
         vec!["turn-1", "turn-2"]
     );
+    let forked_thread_id = app_server
+        .thread_loaded_list(ThreadLoadedListParams {
+            cursor: None,
+            limit: None,
+        })
+        .await?
+        .data
+        .into_iter()
+        .map(|thread_id| ThreadId::from_string(&thread_id))
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .find(|thread_id| *thread_id != source_thread_id)
+        .expect("prompt edit should create a forked thread");
     assert_eq!(
         app_server
             .thread_read(forked_thread_id, /*include_turns*/ true)
@@ -7912,6 +7917,14 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
             .collect::<Vec<_>>(),
         vec!["turn-1"]
     );
+    assert_eq!(
+        app_server
+            .thread_read(forked_thread_id, /*include_turns*/ false)
+            .await?
+            .name
+            .as_deref(),
+        Some("Session (fork for prompt edit)")
+    );
 
     let history = std::iter::from_fn(|| app_event_rx.try_recv().ok())
         .filter_map(|event| match event {
@@ -7921,20 +7934,9 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
             _ => None,
         })
         .collect::<Vec<_>>();
-    let retained_index = history
-        .iter()
-        .position(|line| line.contains("retained prompt"))
-        .expect("forked history should replay the retained prompt");
-    let notice_index = history
-        .iter()
-        .position(|line| line == "• You’re continuing from this point in a new conversation")
-        .expect("prompt edit should emit the branch notice");
-    assert!(retained_index < notice_index);
-    assert!(
-        !history
-            .iter()
-            .any(|line| line.contains("Thread forked from"))
-    );
+    assert!(history.iter().any(|line| {
+        line == "Forked Session (fork for prompt edit) in a new terminal with the selected prompt ready to edit."
+    }));
     app_server.shutdown().await?;
 
     Ok(())
@@ -8048,7 +8050,7 @@ async fn prompt_edit_rolls_back_before_selected_prompt_and_keeps_thread() -> Res
 }
 
 #[tokio::test]
-async fn prompt_edit_before_first_prompt_starts_fresh_thread() -> Result<()> {
+async fn prompt_edit_before_first_prompt_forks_a_resumable_empty_prefix() -> Result<()> {
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
     let config = app.chat_widget.config_ref().clone();
     let source_thread_id = app_test_support::create_fake_rollout(
@@ -8096,10 +8098,11 @@ async fn prompt_edit_before_first_prompt_starts_fresh_thread() -> Result<()> {
     Box::pin(app.handle_event(
         &mut tui,
         &mut app_server,
-        AppEvent::ForkSessionForPromptEdit {
+        AppEvent::EditEarlierPrompt {
             thread_id: source_thread_id,
             nth_user_message: 0,
             prompt: crate::chatwidget::UserMessage::from("first prompt"),
+            action: PromptBacktrackAction::Fork,
         },
     ))
     .await?;
@@ -8139,25 +8142,48 @@ async fn prompt_edit_before_first_prompt_starts_fresh_thread() -> Result<()> {
     .await?;
 
     assert!(matches!(control, AppRunControl::Continue));
-    let fresh_thread_id = app
-        .chat_widget
-        .thread_id()
+    assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
+    assert_eq!(
+        app.chat_widget.composer_text_with_pending(),
+        "first prompt",
+        "{}",
+        next_history_message(&mut app_event_rx)
+    );
+    let fresh_thread_id = app_server
+        .thread_loaded_list(ThreadLoadedListParams {
+            cursor: None,
+            limit: None,
+        })
+        .await?
+        .data
+        .into_iter()
+        .map(|thread_id| ThreadId::from_string(&thread_id))
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .find(|thread_id| *thread_id != source_thread_id)
         .expect("first prompt edit should start a fresh thread");
     assert_ne!(fresh_thread_id, source_thread_id);
-    let active = app
-        .chat_widget
-        .config_ref()
-        .permissions
-        .active_permission_profile()
-        .unwrap();
+    let fresh = app_server
+        .resume_thread(
+            &app.local_settings,
+            app.config.clone(),
+            fresh_thread_id,
+            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+        )
+        .await?;
+    let active = fresh.session.active_permission_profile.as_ref().unwrap();
     assert_eq!(active.id, "server-only");
-    let session = app
-        .primary_session_configured
-        .as_ref()
-        .expect("new session");
-    let roots = &session.runtime_workspace_roots;
+    assert_eq!(fresh.turns, Vec::new());
+    let roots = &fresh.session.runtime_workspace_roots;
     assert!(!roots.contains(&local_only_root_path));
-    assert_eq!(app.chat_widget.composer_text_with_pending(), "first prompt");
+    assert_eq!(
+        app_server
+            .thread_read(fresh_thread_id, /*include_turns*/ false)
+            .await?
+            .name
+            .as_deref(),
+        Some("Session (fork for prompt edit)")
+    );
     let history = std::iter::from_fn(|| app_event_rx.try_recv().ok())
         .filter_map(|event| match event {
             AppEvent::InsertHistoryCell(cell) => {
@@ -8166,16 +8192,9 @@ async fn prompt_edit_before_first_prompt_starts_fresh_thread() -> Result<()> {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert!(
-        history.iter().any(|line| {
-            line == "• You’re continuing from this point in a new conversation"
-        })
-    );
-    assert!(
-        !history
-            .iter()
-            .any(|line| line.contains("Thread forked from"))
-    );
+    assert!(history.iter().any(|line| {
+        line == "Forked Session (fork for prompt edit) in a new terminal with the selected prompt ready to edit."
+    }));
     app_server.shutdown().await?;
 
     Ok(())

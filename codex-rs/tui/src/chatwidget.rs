@@ -865,7 +865,6 @@ pub(crate) enum ReplayKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SessionConfiguredDisplay {
     Normal,
-    PromptEdit,
     PromptRollback,
     /// Apply session state without emitting the session info cell.
     Quiet,

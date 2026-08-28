@@ -220,6 +220,7 @@ mod event_dispatch;
 mod exit_summary;
 mod experimental_features;
 mod file_change_approvals;
+pub(crate) mod fork_terminal;
 mod history_pagination;
 mod history_ui;
 mod input;

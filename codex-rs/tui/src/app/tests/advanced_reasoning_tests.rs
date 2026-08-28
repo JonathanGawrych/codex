@@ -36,10 +36,31 @@ async fn fork_current_session_preserves_conversation_ultra() -> Result<()> {
     .await?;
 
     assert!(matches!(control, AppRunControl::Continue));
-    assert_ne!(app.chat_widget.thread_id(), Some(source_thread_id));
-    assert_eq!(app.chat_widget.current_model(), "gpt-5.4");
+    assert_eq!(app.chat_widget.thread_id(), Some(source_thread_id));
+    let forked_thread_id = app_server
+        .thread_loaded_list(ThreadLoadedListParams {
+            cursor: None,
+            limit: None,
+        })
+        .await?
+        .data
+        .into_iter()
+        .map(|thread_id| ThreadId::from_string(&thread_id))
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .find(|thread_id| *thread_id != source_thread_id)
+        .expect("forked thread should be loaded");
+    let forked = app_server
+        .resume_thread(
+            &app.local_settings,
+            app.config.clone(),
+            forked_thread_id,
+            crate::app_server_session::ResumeModelSettings::PreserveExistingThread,
+        )
+        .await?;
+    assert_eq!(forked.session.model, "gpt-5.4");
     assert_eq!(
-        app.chat_widget.current_reasoning_effort(),
+        forked.session.reasoning_effort,
         Some(ReasoningEffortConfig::Ultra)
     );
     app_server.shutdown().await?;

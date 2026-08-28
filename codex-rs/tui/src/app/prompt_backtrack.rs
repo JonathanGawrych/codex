@@ -54,7 +54,7 @@ impl App {
             },
             PromptBacktrackAction::Fork => match target {
                 Ok(target) => {
-                    self.fork_for_prompt_edit(tui, app_server, config, thread_id, target, prompt)
+                    self.fork_for_prompt_edit(app_server, config, thread_id, target, prompt)
                         .await;
                 }
                 Err(err) => {
@@ -120,7 +120,6 @@ impl App {
 
     async fn fork_for_prompt_edit(
         &mut self,
-        tui: &mut tui::Tui,
         app_server: &mut AppServerSession,
         config: Config,
         thread_id: ThreadId,
@@ -133,7 +132,9 @@ impl App {
             &[("source", "transcript")],
         );
         let selected_profile = self.confirmed_server_profile(thread_id);
-        let started = if target.has_loaded_turn_before || app_server.has_older_history(thread_id) {
+        let starts_empty =
+            !target.has_loaded_turn_before && !app_server.has_older_history(thread_id);
+        let started = if !starts_empty {
             app_server
                 .fork_thread_at(
                     &self.local_settings,
@@ -149,7 +150,9 @@ impl App {
             app_server
                 .start_thread_with_session_start_source(
                     &self.local_settings,
-                    &config, /*session_start_source*/ None, /*remote_cwd_override*/ None,
+                    &config,
+                    /*session_start_source*/ None,
+                    /*remote_cwd_override*/ None,
                     selected_profile.as_ref(),
                 )
                 .await
@@ -157,18 +160,54 @@ impl App {
 
         match started {
             Ok(forked) => {
-                self.shutdown_current_thread(app_server).await;
-                match self
-                    .replace_chat_widget_with_app_server_thread(
-                        tui,
-                        forked,
-                        ThreadAttachPresentation::PromptEdit,
-                        /*initial_user_message*/ None,
-                    )
+                let fork_name = super::fork_terminal::forked_thread_name(
+                    self.chat_widget.thread_name().as_deref(),
+                    /*explicit_name*/ None,
+                    Some("fork for prompt edit"),
+                );
+                let fork_thread_id = forked.session.thread_id;
+                let name_error = app_server
+                    .thread_set_name(fork_thread_id, fork_name.clone())
                     .await
+                    .err()
+                    .map(|err| format!("Failed to name the forked session: {err}"));
+                if let Some(err) = name_error {
+                    self.chat_widget.add_error_message(err);
+                }
+                // Naming saves metadata; reading history then persists an empty paginated root
+                // so the new terminal can resume it before any user prompt has been submitted.
+                if starts_empty
+                    && let Err(error) = app_server
+                        .thread_read(fork_thread_id, /*include_turns*/ true)
+                        .await
                 {
-                    Ok(()) => self.chat_widget.restore_user_message_to_composer(prompt),
-                    Err(err) => self.restore_backtrack_prompt_after_branch_error(prompt, err),
+                    self.restore_backtrack_prompt_after_branch_error(prompt, error);
+                    return;
+                }
+                let profile = self
+                    .loader_overrides
+                    .user_config_profile
+                    .as_ref()
+                    .map(|profile| profile.as_str().to_string());
+                match super::fork_terminal::open_forked_session(
+                    fork_thread_id,
+                    profile.as_deref(),
+                    &self.app_server_target,
+                    Some(prompt.clone()),
+                )
+                .await
+                {
+                    Ok(()) => self.chat_widget.add_plain_history_lines(vec![
+                        vec![
+                            "Forked ".into(),
+                            fork_name.cyan(),
+                            " in a new terminal with the selected prompt ready to edit.".into(),
+                        ]
+                        .into(),
+                    ]),
+                    Err(err) => {
+                        self.restore_backtrack_prompt_after_branch_error(prompt, err);
+                    }
                 }
             }
             Err(err) => self.restore_backtrack_prompt_after_branch_error(prompt, err),
