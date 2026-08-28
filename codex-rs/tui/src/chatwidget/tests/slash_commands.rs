@@ -740,6 +740,9 @@ async fn slash_init_does_not_depend_on_loaded_instruction_sources() {
 
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     assert!(drain_insert_history(&mut rx).is_empty());
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert!(chat.input_queue.queued_user_messages.is_empty());
     assert_eq!(recall_latest_after_clearing(&mut chat), "/init");
 }
 
@@ -1250,22 +1253,9 @@ async fn interrupted_merged_message_history_encodes_mentions_once() {
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn { items, .. } => {
-            let [
-                UserInput::Text {
-                    text: submitted, ..
-                },
-            ] = items.as_slice()
-            else {
-                panic!("expected text item, got {items:?}");
-            };
-            assert_eq!(submitted, text);
-        }
-        other => panic!("expected user turn, got {other:?}"),
-    }
+    assert!(op_rx.try_recv().is_err());
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     let encoded = "use [$figma](app://figma) now";
-    assert_eq!(next_add_to_history_event(&mut rx), encoded);
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     next_interrupt_op(&mut op_rx);

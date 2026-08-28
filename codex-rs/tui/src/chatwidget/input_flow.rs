@@ -38,6 +38,10 @@ impl ChatWidget {
                     );
                     return;
                 }
+                if self.turn_lifecycle.agent_turn_running {
+                    self.queue_user_message(user_message);
+                    return;
+                }
                 let should_submit_now = self.is_session_configured()
                     && !self.is_plan_streaming_in_tui()
                     && !self.input_queue.suppress_queue_autosend

@@ -89,9 +89,16 @@ fn next_user_turn_event(
 }
 
 fn submit_prompt(app: &mut App, prompt: &str) {
-    app.chat_widget.apply_external_edit(prompt.to_string());
-    app.chat_widget
-        .handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.chat_widget.submit_user_message_with_mode(
+        prompt.to_string(),
+        CollaborationModeMask {
+            name: "Default".to_string(),
+            mode: None,
+            model: None,
+            reasoning_effort: None,
+            developer_instructions: None,
+        },
+    );
 }
 
 fn drain_active_thread_events(app: &mut App) {
@@ -582,6 +589,7 @@ goals = true
             app_server
                 .turn_interrupt(source_thread_id, previous_turn_id)
                 .await?;
+            wait_for_turn_completed(&mut app, &mut app_server, source_thread_id).await;
         } else {
             wait_for_turn_completed(&mut app, &mut app_server, source_thread_id).await;
         }

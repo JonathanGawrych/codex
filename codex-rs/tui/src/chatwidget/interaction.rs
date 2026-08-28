@@ -124,7 +124,7 @@ impl ChatWidget {
             && self.bottom_pane.no_modal_or_popup_active()
         {
             if let Some(composer) = self.pop_latest_queued_composer_state() {
-                self.restore_composer_state(composer);
+                self.prepend_composer_state(composer);
                 self.refresh_pending_input_preview();
                 self.request_redraw();
             }

@@ -396,6 +396,55 @@ impl ChatWidget {
         ));
     }
 
+    pub(super) fn prepend_composer_state(&mut self, composer: ThreadComposerState) {
+        let draft = self.bottom_pane.composer_draft_snapshot();
+        let existing_has_content =
+            !self.bottom_pane.composer_is_empty() || !draft.pending_pastes.is_empty();
+        if !existing_has_content {
+            self.restore_composer_state(composer);
+            return;
+        }
+
+        let ThreadComposerState {
+            text,
+            local_images,
+            remote_image_urls,
+            text_elements,
+            mention_bindings,
+            pending_pastes: prepended_pending_pastes,
+        } = composer;
+        let prepended_message = UserMessage {
+            text,
+            local_images,
+            remote_image_urls,
+            text_elements,
+            mention_bindings,
+        };
+        let existing_message = UserMessage {
+            text: draft.text,
+            local_images: draft.local_images,
+            remote_image_urls: draft.remote_image_urls,
+            text_elements: draft.text_elements,
+            mention_bindings: draft.mention_bindings,
+        };
+        let mut used_paste_placeholders = HashSet::new();
+        let (prepended_message, mut pending_pastes) = remap_colliding_paste_placeholders(
+            prepended_message,
+            prepended_pending_pastes,
+            &mut used_paste_placeholders,
+        );
+        let (existing_message, existing_pending_pastes) = remap_colliding_paste_placeholders(
+            existing_message,
+            draft.pending_pastes,
+            &mut used_paste_placeholders,
+        );
+        pending_pastes.extend(existing_pending_pastes);
+        self.restore_composer_state(Self::composer_state_from_user_message(
+            merge_user_messages(vec![prepended_message, existing_message]),
+            pending_pastes,
+        ));
+    }
+
     pub(super) fn restore_composer_state(&mut self, composer: ThreadComposerState) {
         let ThreadComposerState {
             text,

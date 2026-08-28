@@ -1277,7 +1277,7 @@ async fn user_shell_command_renders_output_not_exploring() {
 }
 
 #[tokio::test]
-async fn bang_shell_enter_while_task_running_submits_run_user_shell_command() {
+async fn bang_shell_enter_while_task_running_queues_user_shell_command() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let thread_id = ThreadId::new();
     let rollout_file = NamedTempFile::new().unwrap();
@@ -1311,6 +1311,11 @@ async fn bang_shell_enter_while_task_running_submits_run_user_shell_command() {
     chat.bottom_pane
         .set_composer_text("!echo hi".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(op_rx.try_recv().is_err());
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
 
     match op_rx.try_recv() {
         Ok(Op::RunUserShellCommand { command }) => assert_eq!(command, "echo hi"),

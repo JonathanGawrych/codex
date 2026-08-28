@@ -2261,7 +2261,7 @@ async fn idle_commit_ticks_do_not_restore_status_without_commentary_completion()
 }
 
 #[tokio::test]
-async fn final_answer_completion_restores_status_indicator_for_pending_steer() {
+async fn final_answer_completion_keeps_status_hidden_until_queued_follow_up_starts() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
@@ -2285,7 +2285,21 @@ async fn final_answer_completion_restores_status_indicator_for_pending_steer() {
     );
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(chat.input_queue.pending_steers.len(), 1);
+    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+    assert!(op_rx.try_recv().is_err());
+
+    complete_assistant_message(
+        &mut chat,
+        "msg-final",
+        "Long output line 1\nLong output line 2\n",
+        Some(MessagePhase::FinalAnswer),
+    );
+
+    assert_eq!(chat.bottom_pane.status_indicator_visible(), false);
+    assert_eq!(chat.bottom_pane.is_task_running(), true);
+
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    assert_eq!(chat.bottom_pane.status_indicator_visible(), false);
     let items = match next_submit_op(&mut op_rx) {
         Op::UserTurn { items, .. } => items,
         other => panic!("expected Op::UserTurn, got {other:?}"),
@@ -2297,16 +2311,8 @@ async fn final_answer_completion_restores_status_indicator_for_pending_steer() {
             text_elements: Vec::new(),
         }]
     );
-
-    complete_assistant_message(
-        &mut chat,
-        "msg-final",
-        "Long output line 1\nLong output line 2\n",
-        Some(MessagePhase::FinalAnswer),
-    );
-
+    handle_turn_started(&mut chat, "turn-2");
     assert_eq!(chat.bottom_pane.status_indicator_visible(), true);
-    assert_eq!(chat.bottom_pane.is_task_running(), true);
 
     complete_user_message(
         &mut chat,
@@ -2314,7 +2320,7 @@ async fn final_answer_completion_restores_status_indicator_for_pending_steer() {
         "Please summarize the rest more briefly.",
     );
 
-    assert!(chat.input_queue.pending_steers.is_empty());
+    assert!(chat.input_queue.queued_user_messages.is_empty());
     assert_eq!(chat.bottom_pane.status_indicator_visible(), true);
     assert_eq!(chat.bottom_pane.is_task_running(), true);
 }

@@ -239,6 +239,11 @@ fn queued_message_edit_hint_binding(
         return configured;
     }
 
+    let plain_up = key_hint::plain(KeyCode::Up);
+    if keymap.chat.edit_queued_message.contains(&plain_up) {
+        return Some(crate::key_hint::ShortcutHint::Single(plain_up));
+    }
+
     let terminal_binding = queued_message_edit_binding_for_terminal(terminal_info);
     keymap
         .chat

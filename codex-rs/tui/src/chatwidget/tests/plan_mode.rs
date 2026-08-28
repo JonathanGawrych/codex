@@ -996,7 +996,7 @@ async fn plan_implementation_popup_shows_after_proposed_plan_output() {
 }
 
 #[tokio::test]
-async fn plan_implementation_popup_skips_when_steer_follows_proposed_plan() {
+async fn plan_implementation_popup_skips_when_queued_follow_up_follows_proposed_plan() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
     let plan_mask = collaboration_modes::mask_for_kind(chat.model_catalog.as_ref(), ModeKind::Plan)
@@ -1014,6 +1014,12 @@ async fn plan_implementation_popup_skips_when_steer_follows_proposed_plan() {
     chat.bottom_pane
         .set_composer_text("Please continue.".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(chat.queued_user_message_texts(), vec!["Please continue."]);
+    assert_no_submit_op(&mut op_rx);
+
+    chat.on_task_complete(
+        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+    );
 
     match next_submit_op(&mut op_rx) {
         Op::UserTurn { items, .. } => assert_eq!(
@@ -1027,19 +1033,16 @@ async fn plan_implementation_popup_skips_when_steer_follows_proposed_plan() {
     }
 
     complete_user_message(&mut chat, "user-1", "Please continue.");
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
-    );
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert!(
         !popup.contains(PLAN_IMPLEMENTATION_TITLE),
-        "expected no plan popup after a steer follows the plan, got {popup:?}"
+        "expected no plan popup after a queued follow-up follows the plan, got {popup:?}"
     );
 }
 
 #[tokio::test]
-async fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
+async fn plan_implementation_popup_shows_after_new_plan_follows_queued_follow_up() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5")).await;
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
     let plan_mask = collaboration_modes::mask_for_kind(chat.model_catalog.as_ref(), ModeKind::Plan)
@@ -1056,6 +1059,12 @@ async fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
     chat.bottom_pane
         .set_composer_text("Please revise.".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(chat.queued_user_message_texts(), vec!["Please revise."]);
+    assert_no_submit_op(&mut op_rx);
+
+    chat.on_task_complete(
+        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
+    );
 
     match next_submit_op(&mut op_rx) {
         Op::UserTurn { items, .. } => assert_eq!(
@@ -1069,6 +1078,7 @@ async fn plan_implementation_popup_shows_after_new_plan_follows_steer() {
     }
 
     complete_user_message(&mut chat, "user-1", "Please revise.");
+    chat.on_task_started();
     chat.on_plan_item_completed(
         "- Revised plan
 "
@@ -1314,7 +1324,7 @@ async fn submit_user_message_emits_structured_plugin_mentions_from_bindings() {
 }
 
 #[tokio::test]
-async fn enter_submits_when_plan_stream_is_not_active() {
+async fn enter_queues_while_plan_turn_is_running_without_plan_stream() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
@@ -1327,14 +1337,12 @@ async fn enter_submits_when_plan_stream_is_not_active() {
         .set_composer_text("submitted immediately".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert!(chat.input_queue.queued_user_messages.is_empty());
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn {
-            personality: Some(Personality::Pragmatic),
-            ..
-        } => {}
-        other => panic!("expected Op::UserTurn, got {other:?}"),
-    }
+    assert_eq!(
+        chat.queued_user_message_texts(),
+        vec!["submitted immediately"]
+    );
+    assert!(chat.input_queue.pending_steers.is_empty());
+    assert_no_submit_op(&mut op_rx);
 }
 
 #[tokio::test]

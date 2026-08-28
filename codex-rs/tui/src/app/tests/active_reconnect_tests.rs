@@ -183,7 +183,7 @@ async fn reconnect_restores_history_permissions_and_keeps_old_input_paused() -> 
             app.handle_tui_event(
                 &mut tui,
                 &mut session,
-                TuiEvent::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
+                TuiEvent::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
             )
             .await?;
             assert!(!app.chat_widget.has_queued_follow_up_messages());
@@ -298,12 +298,12 @@ async fn reconnect_restores_history_permissions_and_keeps_old_input_paused() -> 
                 app.handle_tui_event(
                     &mut tui,
                     &mut session,
-                    TuiEvent::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)),
+                    TuiEvent::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
                 )
                 .await?;
                 assert_eq!(
                     app.chat_widget.composer_text_with_pending(),
-                    "unacknowledged prompt"
+                    "unacknowledged prompt\nold queued input"
                 );
                 assert!(ops.try_recv().is_err());
             } else {
