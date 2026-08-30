@@ -4,7 +4,6 @@ pub(crate) struct StableRelease {
     pub(crate) version: String,
 }
 
-#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn is_newer(latest: &str, current: &str) -> Option<bool> {
     match (parse_version(latest), parse_version(current)) {
         (Some(l), Some(c)) => Some(l > c),

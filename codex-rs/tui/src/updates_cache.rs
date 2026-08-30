@@ -6,6 +6,8 @@ use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::update_versions::is_newer;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct VersionInfo {
     pub(crate) latest_version: String,
@@ -16,9 +18,27 @@ pub(crate) struct VersionInfo {
 }
 
 const VERSION_FILENAME: &str = "version.json";
+const SOURCE_UPDATE_CACHE_FILENAME: &str = "source-update.json";
 
 pub(crate) fn version_filepath(config: &Config) -> PathBuf {
     config.codex_home.join(VERSION_FILENAME).into_path_buf()
+}
+
+pub(crate) fn source_update_filepath(config: &Config) -> PathBuf {
+    config
+        .codex_home
+        .join(SOURCE_UPDATE_CACHE_FILENAME)
+        .into_path_buf()
+}
+
+pub(crate) fn read_cached_upgrade_version(
+    version_file: &Path,
+    current_version: &str,
+) -> Option<String> {
+    let info = read_version_info(version_file).ok()?;
+    is_newer(&info.latest_version, current_version)
+        .unwrap_or(false)
+        .then_some(info.latest_version)
 }
 
 pub(crate) fn read_version_info(version_file: &Path) -> anyhow::Result<VersionInfo> {
@@ -28,6 +48,7 @@ pub(crate) fn read_version_info(version_file: &Path) -> anyhow::Result<VersionIn
 
 /// Persist a dismissal for the current latest version so we don't show
 /// the update popup again for this version.
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) async fn dismiss_version(config: &Config, version: &str) -> anyhow::Result<()> {
     let version_file = version_filepath(config);
     let mut info = match read_version_info(&version_file) {
