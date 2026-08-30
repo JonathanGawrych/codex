@@ -111,6 +111,11 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
         (history.session_id, history.text),
         (id.to_string(), "only once".into())
     );
+    let bottom_pane = render_bottom_popup(&app.chat_widget, /*width*/ 80);
+    let bottom_pane = regex_lite::Regex::new(r"\(\d+s\)")
+        .unwrap()
+        .replace_all(&bottom_pane, "([elapsed])")
+        .replacen("◦ Reconnect", "• Reconnect", 1);
     assert_snapshot!(
         "offline_draft",
         format!(
@@ -121,7 +126,7 @@ async fn lost_mutation_reply_preserves_work_without_resubmitting() -> Result<()>
                     .unwrap()
                     .display_lines(/*width*/ 80)
             ),
-            render_bottom_popup(&app.chat_widget, /*width*/ 80)
+            bottom_pane
         )
     );
     let mut keymap = codex_config::types::TuiKeymap::default();

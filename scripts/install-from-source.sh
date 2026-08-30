@@ -4,16 +4,18 @@ set -eu
 
 skip_build=false
 after_tui_shutdown=false
+skip_daemon_restart=false
 
 usage() {
   cat <<EOF
-Usage: install-from-source.sh [--skip-build] [--after-tui-shutdown]
+Usage: install-from-source.sh [--skip-build] [--after-tui-shutdown] [--skip-daemon-restart]
 
 Build and install this checkout as the managed standalone Codex package.
 
 Options:
   --skip-build          Package existing release binaries without rebuilding them.
   --after-tui-shutdown  Restart the managed app-server after the TUI shuts down.
+  --skip-daemon-restart Leave the currently running managed app-server unchanged.
 EOF
 }
 
@@ -24,6 +26,9 @@ while [ "$#" -gt 0 ]; do
       ;;
     --after-tui-shutdown)
       after_tui_shutdown=true
+      ;;
+    --skip-daemon-restart)
+      skip_daemon_restart=true
       ;;
     --help | -h)
       usage
@@ -139,6 +144,7 @@ if [ -f "$daemon_state_dir/app-server.pid" ]; then
 fi
 
 if [ "$daemon_was_configured" = true ] &&
+  [ "$skip_daemon_restart" = false ] &&
   [ "$after_tui_shutdown" = false ] &&
   { [ -n "${CODEX_THREAD_ID:-}" ] ||
     [ -n "${CODEX_SESSION_ID:-}" ] ||
@@ -277,13 +283,15 @@ if [ "$(uname -s)" = Darwin ] &&
   "$checkout_root/scripts/codex-chrome-native-host-proxy.mjs" --install
 fi
 
-if [ "$daemon_was_configured" = true ]; then
+if [ "$daemon_was_configured" = true ] && [ "$skip_daemon_restart" = false ]; then
   echo "==> Restarting the managed app-server"
   if [ "$remote_control_enabled" = true ]; then
     "$bin_dir/codex" app-server daemon bootstrap --remote-control >/dev/null
   else
     "$bin_dir/codex" app-server daemon bootstrap >/dev/null
   fi
+elif [ "$daemon_was_configured" = true ]; then
+  echo "==> Leaving the managed app-server running"
 fi
 
 "$bin_dir/codex" --version
