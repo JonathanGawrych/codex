@@ -1274,6 +1274,45 @@ async fn guardian_mcp_tool_call_request_meta_excludes_actor_confirmation_policy(
 }
 
 #[tokio::test]
+async fn node_repl_request_meta_includes_empty_confirmation_policies_for_actor_calls() {
+    let (_, turn_context) = make_session_and_context().await;
+    let step_context = StepContext::for_test(Arc::new(turn_context));
+
+    for server in ["node_repl", "cua_repl"] {
+        let meta = build_mcp_tool_call_request_meta(
+            &step_context,
+            server,
+            "call-node-repl",
+            /*metadata*/ None,
+        )
+        .expect("Node REPL-backed calls should receive request metadata");
+
+        assert_eq!(
+            meta.get(CONFIRMATION_POLICIES_META_KEY),
+            Some(&serde_json::json!({})),
+            "{server}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn guardian_node_repl_request_meta_excludes_actor_confirmation_policies() {
+    let (_, mut turn_context) = make_session_and_context().await;
+    turn_context.session_source = SessionSource::Internal(InternalSessionSource::Guardian);
+    let step_context = StepContext::for_test(Arc::new(turn_context));
+
+    let meta = build_mcp_tool_call_request_meta(
+        &step_context,
+        "node_repl",
+        "call-guardian",
+        /*metadata*/ None,
+    )
+    .expect("Guardian calls should receive request metadata");
+
+    assert_eq!(meta.get(CONFIRMATION_POLICIES_META_KEY), None);
+}
+
+#[tokio::test]
 async fn mcp_tool_call_request_meta_includes_turn_started_at_unix_ms() {
     let (_, turn_context) = make_session_and_context().await;
     let turn_context = Arc::new(turn_context);
