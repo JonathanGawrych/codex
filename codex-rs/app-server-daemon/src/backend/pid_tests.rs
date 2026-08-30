@@ -12,6 +12,7 @@ use super::PidCommandKind;
 use super::PidFileState;
 use super::PidLogTail;
 use super::PidRecord;
+use super::STOP_TIMEOUT;
 #[cfg(unix)]
 use super::read_process_start_time;
 use super::read_stderr_log_tail;
@@ -292,13 +293,15 @@ fn app_server_remote_control_uses_runtime_flag() {
 
 #[test]
 fn app_server_stop_never_forces_process_termination() {
-    assert!(
-        !PidCommandKind::AppServer {
-            remote_control_enabled: true,
-        }
-        .allows_forced_stop()
-    );
-    assert!(PidCommandKind::UpdateLoop.allows_forced_stop());
+    let app_server = PidCommandKind::AppServer {
+        remote_control_enabled: true,
+    };
+    assert!(!app_server.allows_forced_stop());
+    assert_eq!(app_server.stop_timeout(), None);
+
+    let update_loop = PidCommandKind::UpdateLoop;
+    assert!(update_loop.allows_forced_stop());
+    assert_eq!(update_loop.stop_timeout(), Some(STOP_TIMEOUT));
 }
 
 #[test]

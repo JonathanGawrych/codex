@@ -1095,6 +1095,7 @@ mod tests {
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
             managed_codex_bin: state.join("missing-codex"),
+            source_install: false,
         };
         assert_eq!(
             daemon

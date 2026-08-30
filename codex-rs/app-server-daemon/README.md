@@ -130,11 +130,11 @@ Top-level `codex remote-control` bootstraps with `--remote-control` when the
 updater loop is not running. Otherwise it enables remote control and starts the
 daemon normally.
 
-`stop` sends a graceful termination request to app-server and returns an error
-if app-server does not exit before the timeout. It never forcibly terminates
-app-server because that can interrupt a rollout write. The detached updater
-loop may be forcibly terminated after its grace window because it does not
-write session history.
+`stop` sends a graceful termination request to app-server and waits for every
+running assistant turn to finish. It never forcibly terminates app-server
+because that can interrupt a rollout write. The detached updater loop has a
+bounded shutdown and may be forcibly terminated after its grace window because
+it does not write session history.
 
 All mutating lifecycle commands are serialized per `CODEX_HOME`, so a concurrent
 `start`, `restart`, `enable-remote-control`, `disable-remote-control`, `stop`,
