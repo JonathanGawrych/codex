@@ -1,0 +1,10 @@
+---
+source: tui/src/app/tests/active_reconnect_tests.rs
+expression: "render_bottom_popup(&app.chat_widget, 80)"
+---
+• Reconnecting to app-server… (0s)
+
+
+› Ask Codex to do anything
+
+   ctrl+c quit

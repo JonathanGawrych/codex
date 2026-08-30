@@ -485,7 +485,7 @@ async fn reconnect_reconciles_offscreen_pending_profile_before_restoring_permiss
 }
 
 #[tokio::test]
-async fn reconnect_exhaustion_and_unknown_initial_thread_stay_offline() -> Result<()> {
+async fn reconnect_keeps_retrying_but_unknown_initial_thread_stays_offline() -> Result<()> {
     let (mut app, _, _) = make_test_app_with_channels().await;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     app.app_server_target = AppServerTarget::Remote {
@@ -494,23 +494,41 @@ async fn reconnect_exhaustion_and_unknown_initial_thread_stay_offline() -> Resul
     drop(listener);
     tokio::time::pause();
     let start = tokio::time::Instant::now();
-    for id in [Some(ThreadId::new()), None] {
-        assert!(
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(/*secs*/ 3600),
             reconnect(
                 app.app_server_target.clone(),
                 app.config.clone(),
                 app.local_settings.clone(),
-                id,
+                Some(ThreadId::new()),
                 /*remote_cwd*/ None,
                 crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
-                ReconnectPresentation::Conversation
-            )
-            .await
-            .is_err()
-        );
-    }
-    assert!((15..=65).contains(&start.elapsed().as_secs()));
+                ReconnectPresentation::Conversation,
+            ),
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(start.elapsed().as_secs(), 3600);
     app.begin_reconnect();
+    assert_snapshot!(
+        "reconnecting_after_prolonged_outage",
+        render_bottom_popup(&app.chat_widget, /*width*/ 80)
+    );
+    assert!(
+        reconnect(
+            app.app_server_target.clone(),
+            app.config.clone(),
+            app.local_settings.clone(),
+            /*thread_id*/ None,
+            /*remote_cwd*/ None,
+            crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
+            ReconnectPresentation::Conversation,
+        )
+        .await
+        .is_err()
+    );
     app.chat_widget.reconnect_failed();
     assert_snapshot!(
         "reconnect_failed",
@@ -546,16 +564,19 @@ async fn reconnect_allows_slow_hydration_but_bounds_a_stalled_server() -> Result
             .await
         });
         let start = tokio::time::Instant::now();
-        let result = reconnect(
-            AppServerTarget::Remote {
-                endpoint: endpoint.clone(),
-            },
-            app.config.clone(),
-            app.local_settings.clone(),
-            Some(id),
-            /*remote_cwd*/ None,
-            crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
-            ReconnectPresentation::Conversation,
+        let result = tokio::time::timeout(
+            Duration::from_secs(/*secs*/ 130),
+            reconnect(
+                AppServerTarget::Remote {
+                    endpoint: endpoint.clone(),
+                },
+                app.config.clone(),
+                app.local_settings.clone(),
+                Some(id),
+                /*remote_cwd*/ None,
+                crate::dynamic_tools_mcp::ThreadToolTransport::Dynamic,
+                ReconnectPresentation::Conversation,
+            ),
         )
         .await;
         let elapsed = start.elapsed().as_secs();
@@ -574,7 +595,7 @@ async fn reconnect_allows_slow_hydration_but_bounds_a_stalled_server() -> Result
             app.begin_reconnect();
             let mut session = crate::start_embedded_app_server_for_picker(&app.config).await?;
             let mut tui = crate::tui::test_support::make_test_tui()?;
-            app.finish_reconnect(&mut tui, &mut session, &mut events, result?)
+            app.finish_reconnect(&mut tui, &mut session, &mut events, result??)
                 .await?;
             assert!(app.thread_unavailable(id));
             app.handle_tui_event(
@@ -613,7 +634,7 @@ async fn reconnect_allows_slow_hydration_but_bounds_a_stalled_server() -> Result
         } else {
             tokio::time::resume();
             assert!(result.is_err());
-            assert_eq!(elapsed, 120);
+            assert_eq!(elapsed, 130);
             server.abort();
         }
     }

@@ -6,6 +6,9 @@ use super::*;
 use crate::app_server_session::ResumeModelSettings;
 use crate::dynamic_tools_mcp::ThreadToolTransport;
 
+mod network_change;
+mod retry;
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum ReconnectPresentation {
     #[default]
@@ -47,12 +50,16 @@ pub(super) async fn reconnect(
             "The initial thread may have been created, but its ID was not received. Nothing was retried. Your prompt is editable; inspect your tasks before relaunching."
         );
     }
-    // Connecting already has transport deadlines. Give healthy history/inventory hydration one
-    // shared budget instead of repeatedly discarding its progress on a short per-attempt timer.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(/*secs*/ 120);
-    for delay in [0, 1, 2, 4, 8] {
+    let endpoint = match &target {
+        AppServerTarget::Remote { endpoint } | AppServerTarget::LocalDaemon { endpoint } => {
+            endpoint
+        }
+        AppServerTarget::Embedded => unreachable!("embedded sessions were rejected above"),
+    };
+    let mut network = network_change::NetworkChanges::new(endpoint);
+    let mut backoff = retry::ReconnectBackoff::default();
+    loop {
         let attempt = async {
-            tokio::time::sleep(Duration::from_secs(delay)).await;
             let client = crate::app_server_connection::connect(&target).await?;
             let mut session = AppServerSession::new(client, mode)
                 .with_local_codex_home(&config.codex_home)
@@ -109,15 +116,17 @@ pub(super) async fn reconnect(
                 thread,
             })
         };
-        let result = tokio::time::timeout_at(deadline, attempt).await;
-        match result {
-            Ok(Ok(connected)) => return Ok(connected),
-            Ok(Err(_)) => {}
-            Err(_) => break,
+        // Bound each attempt, including history hydration, without imposing a deadline on
+        // recovery after sleep or a prolonged outage. Network changes shorten the wait between
+        // attempts; they must not repeatedly cancel healthy hydration already in progress.
+        if let Ok(Ok(connected)) =
+            tokio::time::timeout(Duration::from_secs(/*secs*/ 120), attempt).await
+        {
+            return Ok(connected);
         }
         // Transport errors can contain endpoint credentials. Do not render or log them.
+        backoff.wait_for_retry(network.changed()).await;
     }
-    color_eyre::eyre::bail!("app-server session could not be restored")
 }
 
 impl App {

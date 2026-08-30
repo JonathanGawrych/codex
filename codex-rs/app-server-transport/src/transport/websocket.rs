@@ -14,6 +14,7 @@ use axum::body::Body;
 use axum::body::Bytes;
 use axum::extract::ConnectInfo;
 use axum::extract::State;
+use axum::extract::ws::CloseFrame as AxumCloseFrame;
 use axum::extract::ws::Message as AxumWebSocketMessage;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::http::HeaderMap;
@@ -34,10 +35,14 @@ use owo_colors::Style;
 use std::io::Result as IoResult;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message as TungsteniteWebSocketMessage;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame as TungsteniteCloseFrame;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 use tracing::info;
@@ -46,6 +51,7 @@ use tracing::warn;
 /// WebSocket clients can briefly lag behind normal turn output bursts while the
 /// writer task is healthy, so give them more headroom than internal channels.
 const WEBSOCKET_OUTBOUND_CHANNEL_CAPACITY: usize = 32 * 1024;
+const WEBSOCKET_CLOSE_FRAME_TIMEOUT: Duration = Duration::from_secs(1);
 const _: () = assert!(WEBSOCKET_OUTBOUND_CHANNEL_CAPACITY > CHANNEL_CAPACITY);
 
 fn colorize(text: &str, style: Style) -> String {
@@ -209,7 +215,6 @@ pub(crate) async fn run_websocket_connection<M, SinkError, StreamError>(
         writer_tx_for_reader,
         writer_control_tx,
         connection_id,
-        disconnect_token.clone(),
     ));
 
     tokio::select! {
@@ -242,6 +247,7 @@ pub(crate) enum IncomingWebSocketMessage {
 pub(crate) trait AppServerWebSocketMessage: Sized {
     fn text(text: String) -> Self;
     fn pong(payload: Bytes) -> Self;
+    fn service_restart() -> Self;
     fn into_incoming(self) -> Option<IncomingWebSocketMessage>;
 }
 
@@ -252,6 +258,13 @@ impl AppServerWebSocketMessage for AxumWebSocketMessage {
 
     fn pong(payload: Bytes) -> Self {
         Self::Pong(payload)
+    }
+
+    fn service_restart() -> Self {
+        Self::Close(Some(AxumCloseFrame {
+            code: 1012,
+            reason: "app server restarting".into(),
+        }))
     }
 
     fn into_incoming(self) -> Option<IncomingWebSocketMessage> {
@@ -272,6 +285,13 @@ impl AppServerWebSocketMessage for TungsteniteWebSocketMessage {
 
     fn pong(payload: Bytes) -> Self {
         Self::Pong(payload)
+    }
+
+    fn service_restart() -> Self {
+        Self::Close(Some(TungsteniteCloseFrame {
+            code: CloseCode::Restart,
+            reason: "app server restarting".into(),
+        }))
     }
 
     fn into_incoming(self) -> Option<IncomingWebSocketMessage> {
@@ -299,6 +319,10 @@ async fn run_websocket_outbound_loop<M, SinkError>(
     loop {
         tokio::select! {
             _ = disconnect_token.cancelled() => {
+                let _ = timeout(
+                    WEBSOCKET_CLOSE_FRAME_TIMEOUT,
+                    websocket_writer.send(M::service_restart()),
+                ).await;
                 break;
             }
             message = writer_control_rx.recv() => {
@@ -333,56 +357,54 @@ async fn run_websocket_inbound_loop<M, StreamError>(
     writer_tx_for_reader: mpsc::Sender<QueuedOutgoingMessage>,
     writer_control_tx: mpsc::Sender<M>,
     connection_id: ConnectionId,
-    disconnect_token: CancellationToken,
 ) where
     M: AppServerWebSocketMessage + Send + 'static,
     StreamError: std::fmt::Display + Send + 'static,
 {
     tokio::pin!(websocket_reader);
     loop {
-        tokio::select! {
-            _ = disconnect_token.cancelled() => {
-                break;
-            }
-            incoming_message = websocket_reader.next() => {
-                match incoming_message {
-                    Some(Ok(message)) => match message.into_incoming() {
-                        Some(IncomingWebSocketMessage::Text(text))
-                            if !forward_incoming_message(
-                                &transport_event_tx,
-                                &writer_tx_for_reader,
-                                connection_id,
-                                &text,
-                            )
-                            .await
-                        => {
+        match websocket_reader.next().await {
+            Some(Ok(message)) => match message.into_incoming() {
+                Some(IncomingWebSocketMessage::Text(text))
+                    if !forward_incoming_message(
+                        &transport_event_tx,
+                        &writer_tx_for_reader,
+                        connection_id,
+                        &text,
+                    )
+                    .await =>
+                {
+                    break;
+                }
+                Some(IncomingWebSocketMessage::Text(_)) => {}
+                Some(IncomingWebSocketMessage::Ping(payload)) => {
+                    match writer_control_tx.try_send(M::pong(payload)) {
+                        Ok(()) => {}
+                        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+                        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                            warn!(
+                                "websocket control queue full while replying to ping; closing connection"
+                            );
                             break;
                         }
-                        Some(IncomingWebSocketMessage::Text(_)) => {}
-                        Some(IncomingWebSocketMessage::Ping(payload)) => {
-                            match writer_control_tx.try_send(M::pong(payload)) {
-                                Ok(()) => {}
-                                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
-                                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                                    warn!("websocket control queue full while replying to ping; closing connection");
-                                    break;
-                                }
-                            }
-                        }
-                        Some(IncomingWebSocketMessage::Pong) => {}
-                        Some(IncomingWebSocketMessage::Close) => break,
-                        Some(IncomingWebSocketMessage::Binary) => {
-                            warn!("dropping unsupported binary websocket message");
-                        }
-                        None => {}
-                    },
-                    None => break,
-                    Some(Err(err)) => {
-                        warn!("websocket receive error: {err}");
-                        break;
                     }
                 }
+                Some(IncomingWebSocketMessage::Pong) => {}
+                Some(IncomingWebSocketMessage::Close) => break,
+                Some(IncomingWebSocketMessage::Binary) => {
+                    warn!("dropping unsupported binary websocket message");
+                }
+                None => {}
+            },
+            None => break,
+            Some(Err(err)) => {
+                warn!("websocket receive error: {err}");
+                break;
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "websocket_tests.rs"]
+mod tests;
