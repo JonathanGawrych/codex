@@ -5424,6 +5424,7 @@ async fn overlapping_hook_live_cell_tracks_parallel_quiet_hooks() {
 #[tokio::test]
 async fn running_hook_does_not_displace_active_exec_cell() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
 
     let begin = begin_exec(&mut chat, "call-1", "echo done");
     let exec_running = active_blob(&chat);

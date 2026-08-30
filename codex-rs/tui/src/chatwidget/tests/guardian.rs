@@ -255,6 +255,7 @@ async fn prompt_revert_discards_recent_denial_actions() {
 #[tokio::test]
 async fn guardian_denied_exec_renders_warning_and_denied_request() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
     chat.show_welcome_banner = false;
     let action = GuardianAssessmentAction::Command {
         source: GuardianCommandSource::Shell,
@@ -383,6 +384,7 @@ async fn guardian_approved_exec_is_hidden_from_history() {
 #[tokio::test]
 async fn guardian_approved_request_permissions_clears_status_without_history() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
     chat.show_welcome_banner = false;
     let action = GuardianAssessmentAction::RequestPermissions {
         reason: Some("Need write access for generated report assets.".to_string()),
@@ -469,6 +471,7 @@ async fn guardian_approved_request_permissions_clears_status_without_history() {
 #[tokio::test]
 async fn guardian_timed_out_exec_renders_warning_and_timed_out_request() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
     chat.show_welcome_banner = false;
     let action = GuardianAssessmentAction::Command {
         source: GuardianCommandSource::Shell,
@@ -584,6 +587,7 @@ async fn app_server_guardian_review_started_sets_review_status() {
 #[tokio::test]
 async fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
     chat.show_welcome_banner = false;
     let action = AppServerGuardianApprovalReviewAction::Command {
         source: AppServerGuardianCommandSource::Shell,
@@ -662,6 +666,7 @@ async fn app_server_guardian_review_denied_renders_denied_request_snapshot() {
 #[tokio::test]
 async fn app_server_guardian_review_timed_out_renders_timed_out_request_snapshot() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.on_task_started();
     chat.show_welcome_banner = false;
     let action = AppServerGuardianApprovalReviewAction::Command {
         source: AppServerGuardianCommandSource::Shell,
