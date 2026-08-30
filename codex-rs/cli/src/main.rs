@@ -807,6 +807,10 @@ enum AppServerDaemonSubcommand {
     /// Print local CLI and running app-server versions as JSON.
     Version,
 
+    /// [internal] Stop the detached standalone updater loop.
+    #[clap(hide = true)]
+    StopUpdater,
+
     /// [internal] Run the detached pid-backed standalone updater loop.
     #[clap(hide = true)]
     PidUpdateLoop,
@@ -895,9 +899,12 @@ fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
         let thread_id = exit_info
             .thread_id
             .context("the updated Codex process cannot restart without an active thread ID")?;
+        println!("Installing the updated source package...");
+        std::io::stdout().flush()?;
+        codex_tui::install_source_update()?;
         println!("Restarting Codex with the updated binary...");
         std::io::stdout().flush()?;
-        return restart_current_executable(thread_id);
+        return restart_after_source_update(thread_id);
     }
     let color_enabled = supports_color::on(Stream::Stdout).is_some();
     for line in exit_info.format_exit_messages(color_enabled) {
@@ -1010,12 +1017,23 @@ fn run_update_command() -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
-fn restart_current_executable(thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
+fn restart_after_source_update(thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
 
-    let current_executable = std::env::current_exe()
-        .context("failed to resolve the current Codex executable for restart")?;
-    let mut command = std::process::Command::new(&current_executable);
+    let codex_home = find_codex_home()?;
+    let installed_executable = codex_home
+        .join("packages")
+        .join("standalone")
+        .join("current")
+        .join("bin")
+        .join("codex");
+    if !installed_executable.is_file() {
+        anyhow::bail!(
+            "the updated source package did not install {}",
+            installed_executable.display()
+        );
+    }
+    let mut command = std::process::Command::new(installed_executable.as_path());
     command
         .args(std::env::args_os().skip(1))
         .env(INTERNAL_RESTART_SESSION_ID_ENV, thread_id.to_string())
@@ -1026,12 +1044,12 @@ fn restart_current_executable(thread_id: codex_protocol::ThreadId) -> anyhow::Re
     let error = command.exec();
     Err(anyhow::Error::new(error).context(format!(
         "failed to restart {}",
-        current_executable.display()
+        installed_executable.display()
     )))
 }
 
 #[cfg(not(unix))]
-fn restart_current_executable(_thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
+fn restart_after_source_update(_thread_id: codex_protocol::ThreadId) -> anyhow::Result<()> {
     anyhow::bail!("automatic restart after a source checkout update is only supported on Unix")
 }
 
@@ -1492,6 +1510,10 @@ async fn cli_main(
                     }
                     AppServerDaemonSubcommand::Version => {
                         print_app_server_daemon_output(AppServerLifecycleCommand::Version).await?;
+                    }
+                    AppServerDaemonSubcommand::StopUpdater => {
+                        let output = codex_app_server_daemon::stop_updater().await?;
+                        println!("{}", serde_json::to_string(&output)?);
                     }
                     AppServerDaemonSubcommand::PidUpdateLoop => {
                         let cli_overrides = root_config_overrides
@@ -2730,6 +2752,7 @@ fn app_server_subcommand_name(subcommand: Option<&AppServerSubcommand>) -> &'sta
             }
             AppServerDaemonSubcommand::Stop => "app-server daemon stop",
             AppServerDaemonSubcommand::Version => "app-server daemon version",
+            AppServerDaemonSubcommand::StopUpdater => "app-server daemon stop-updater",
             AppServerDaemonSubcommand::PidUpdateLoop => "app-server daemon pid-update-loop",
         },
         Some(AppServerSubcommand::Proxy(_)) => "app-server proxy",
@@ -5044,6 +5067,13 @@ mod tests {
             app_server_from_args(["codex", "app-server", "daemon", "version"].as_ref()).subcommand,
             Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
                 subcommand: AppServerDaemonSubcommand::Version
+            }))
+        ));
+        assert!(matches!(
+            app_server_from_args(["codex", "app-server", "daemon", "stop-updater"].as_ref())
+                .subcommand,
+            Some(AppServerSubcommand::Daemon(AppServerDaemonCommand {
+                subcommand: AppServerDaemonSubcommand::StopUpdater
             }))
         ));
     }

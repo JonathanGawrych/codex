@@ -89,29 +89,15 @@ pub fn get_update_action() -> Option<UpdateAction> {
 }
 
 pub(crate) fn source_checkout_root() -> Option<&'static Path> {
-    let checkout_root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
-    let current_exe = std::env::current_exe().ok()?;
-    source_checkout_update_action_for_executable(
-        &current_exe,
-        Path::new(env!("CARGO_MANIFEST_DIR")),
-    )?;
-    Some(checkout_root)
+    source_checkout_root_for_manifest_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
 }
 
-fn source_checkout_update_action_for_executable(
-    current_exe: &Path,
-    manifest_dir: &Path,
-) -> Option<UpdateAction> {
+fn source_checkout_root_for_manifest_dir(manifest_dir: &Path) -> Option<&Path> {
     let checkout_root = manifest_dir.parent()?.parent()?;
     if !checkout_root.join(".git").exists() {
         return None;
     }
-
-    let current_exe = current_exe.canonicalize().ok()?;
-    let target_dir = checkout_root.join("codex-rs/target").canonicalize().ok()?;
-    current_exe
-        .starts_with(target_dir)
-        .then_some(UpdateAction::SourceCheckout)
+    Some(checkout_root)
 }
 
 #[cfg(test)]
@@ -212,20 +198,16 @@ mod tests {
     }
 
     #[test]
-    fn source_checkout_is_detected_for_a_target_binary() {
+    fn source_checkout_is_detected_from_the_compiled_manifest_path() {
         let temp_dir = tempfile::tempdir().expect("temp dir");
         let checkout_root = temp_dir.path();
         let manifest_dir = checkout_root.join("codex-rs/tui");
-        let target_dir = checkout_root.join("codex-rs/target/release");
         std::fs::create_dir_all(checkout_root.join(".git")).expect("create git directory");
         std::fs::create_dir_all(&manifest_dir).expect("create manifest directory");
-        std::fs::create_dir_all(&target_dir).expect("create target directory");
-        let executable = target_dir.join("codex");
-        std::fs::write(&executable, []).expect("create executable");
 
         assert_eq!(
-            source_checkout_update_action_for_executable(&executable, &manifest_dir),
-            Some(UpdateAction::SourceCheckout)
+            source_checkout_root_for_manifest_dir(&manifest_dir),
+            Some(checkout_root)
         );
     }
 }

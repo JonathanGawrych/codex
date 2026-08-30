@@ -291,6 +291,17 @@ fn app_server_remote_control_uses_runtime_flag() {
 }
 
 #[test]
+fn app_server_stop_never_forces_process_termination() {
+    assert!(
+        !PidCommandKind::AppServer {
+            remote_control_enabled: true,
+        }
+        .allows_forced_stop()
+    );
+    assert!(PidCommandKind::UpdateLoop.allows_forced_stop());
+}
+
+#[test]
 fn app_server_disabled_remote_control_uses_compatible_args_and_runtime_env() {
     let backend = PidBackend::new(
         "codex".into(),

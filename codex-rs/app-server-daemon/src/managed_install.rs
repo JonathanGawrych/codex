@@ -30,6 +30,27 @@ pub(crate) fn managed_codex_bin(codex_home: &Path) -> PathBuf {
     }
 }
 
+pub(crate) fn is_source_standalone_install(managed_codex_bin: &Path) -> bool {
+    let checkout_root = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+    if !checkout_root.join(".git").exists() {
+        return false;
+    }
+    let Ok(current_exe) = std::env::current_exe() else {
+        return false;
+    };
+    paths_resolve_to_same_file(&current_exe, managed_codex_bin)
+}
+
+fn paths_resolve_to_same_file(left: &Path, right: &Path) -> bool {
+    let Ok(left) = std::fs::canonicalize(left) else {
+        return false;
+    };
+    let Ok(right) = std::fs::canonicalize(right) else {
+        return false;
+    };
+    left == right
+}
+
 pub(crate) async fn resolved_managed_codex_bin(codex_bin: &Path) -> Result<PathBuf> {
     fs::canonicalize(codex_bin).await.with_context(|| {
         format!(

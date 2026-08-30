@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::fs::File;
+use std::fs::TryLockError;
 use std::io::Error as IoError;
 use std::io::Read;
 use std::io::Seek;
@@ -1670,7 +1671,8 @@ fn open_log_file(path: &Path) -> std::io::Result<File> {
         .read(true)
         .append(true)
         .create(true)
-        .open(path)?;
+        .open(&path)?;
+    lock_rollout_for_append(&file, &path)?;
     if refresh_modified_time {
         file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::now()))?;
     }
@@ -1864,6 +1866,7 @@ async fn rollout_writer(
             }
             RolloutCmd::Shutdown { ack } => match state.shutdown().await {
                 Ok(()) => {
+                    state.writer = None;
                     let _ = ack.send(Ok(()));
                     break;
                 }
@@ -1933,6 +1936,7 @@ async fn open_rollout_for_append(
             .read(true)
             .append(true)
             .open(path_for_open.as_path())?;
+        lock_rollout_for_append(&file, path_for_open.as_path())?;
         if refresh_modified_time {
             file.set_times(std::fs::FileTimes::new().set_modified(std::time::SystemTime::now()))?;
         }
@@ -1943,6 +1947,26 @@ async fn open_rollout_for_append(
     .await
     .map_err(IoError::other)??;
     Ok((path, tokio::fs::File::from_std(file), ordinal_state))
+}
+
+fn lock_rollout_for_append(file: &File, path: &Path) -> std::io::Result<()> {
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(TryLockError::WouldBlock) => Err(IoError::new(
+            std::io::ErrorKind::WouldBlock,
+            format!(
+                "rollout at {} is already open for writing by another Codex process",
+                path.display()
+            ),
+        )),
+        Err(TryLockError::Error(err)) => Err(IoError::new(
+            err.kind(),
+            format!(
+                "failed to lock rollout at {} for append: {err}",
+                path.display()
+            ),
+        )),
+    }
 }
 
 fn ensure_rollout_is_newline_terminated(file: &mut File) -> std::io::Result<()> {

@@ -1061,6 +1061,66 @@ async fn resumed_paginated_rollout_continues_after_decimal_token_count() -> std:
 }
 
 #[tokio::test]
+async fn rollout_lock_rejects_concurrent_writers_and_releases_on_shutdown() -> std::io::Result<()> {
+    let home = TempDir::new().expect("temp dir");
+    let config = test_config(home.path());
+    let rollout_path = home.path().join("rollout.jsonl");
+    write_paginated_rollout(&rollout_path, ThreadId::new(), &[4])?;
+
+    let recorder =
+        RolloutRecorder::new(&config, RolloutRecorderParams::resume(rollout_path.clone())).await?;
+
+    let second_recorder_error =
+        match RolloutRecorder::new(&config, RolloutRecorderParams::resume(rollout_path.clone()))
+            .await
+        {
+            Ok(_) => panic!("a second recorder should not open the same rollout"),
+            Err(err) => err,
+        };
+    let offline_append_error = append_rollout_item_to_path(
+        &rollout_path,
+        &agent_message_item("concurrent offline append"),
+    )
+    .await
+    .expect_err("an offline append should not write to a live rollout");
+    let expected_error = (
+        std::io::ErrorKind::WouldBlock,
+        format!(
+            "rollout at {} is already open for writing by another Codex process",
+            rollout_path.display()
+        ),
+    );
+    assert_eq!(
+        (
+            second_recorder_error.kind(),
+            second_recorder_error.to_string()
+        ),
+        expected_error
+    );
+    assert_eq!(
+        (
+            offline_append_error.kind(),
+            offline_append_error.to_string()
+        ),
+        expected_error
+    );
+
+    recorder
+        .record_canonical_items(&[agent_message_item("live append")])
+        .await?;
+    recorder.shutdown().await?;
+
+    append_rollout_item_to_path(&rollout_path, &agent_message_item("offline after shutdown"))
+        .await?;
+    let lines = read_rollout_lines(&rollout_path)?;
+    assert_eq!(
+        lines.iter().map(|line| line.ordinal).collect::<Vec<_>>(),
+        vec![Some(0), Some(4), Some(5), Some(6)]
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn resumed_paginated_rollout_repairs_unsafe_tail() -> std::io::Result<()> {
     let valid_unterminated = serde_json::to_string(&RolloutLine {
         timestamp: "2026-07-09T00:00:05Z".to_string(),

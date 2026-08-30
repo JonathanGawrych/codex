@@ -41,6 +41,17 @@ code-mode-host *args:
 assemble-codex-package *args:
     {{ python }} {{ justfile_directory() }}/scripts/build_codex_package.py {args}
 
+# Build the CLI and code-mode host with verified Codex-built V8 artifacts.
+[no-cd]
+build-source *args:
+    {{ python }} {{ justfile_directory() }}/scripts/build_codex_source.py {args}
+
+# Build and install this checkout as the managed standalone Codex package.
+[no-cd]
+[unix]
+install-source *args:
+    {{ justfile_directory() }}/scripts/install-from-source.sh {args}
+
 # Build the CLI and run the app-server test client
 app-server-test-client *args:
     cargo build -p codex-cli

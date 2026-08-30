@@ -22,6 +22,7 @@ use codex_app_server_protocol::RemoteControlConnectionStatus;
 use codex_app_server_protocol::RemoteControlPairingStartResponse;
 use codex_app_server_transport::app_server_control_socket_path;
 use codex_utils_home_dir::find_codex_home;
+use managed_install::is_source_standalone_install;
 use managed_install::managed_codex_bin;
 #[cfg(any(unix, windows))]
 use managed_install::managed_codex_version;
@@ -208,6 +209,11 @@ pub async fn bootstrap(options: BootstrapOptions) -> Result<BootstrapOutput> {
     Daemon::from_environment()?.bootstrap(options).await
 }
 
+pub async fn stop_updater() -> Result<LifecycleOutput> {
+    ensure_supported_platform()?;
+    Daemon::from_environment()?.stop_updater().await
+}
+
 pub async fn ensure_remote_control_ready() -> Result<RemoteControlReadyOutput> {
     ensure_supported_platform()?;
     #[cfg(windows)]
@@ -273,6 +279,7 @@ struct Daemon {
     operation_lock_file: PathBuf,
     settings_file: PathBuf,
     managed_codex_bin: PathBuf,
+    source_install: bool,
 }
 
 impl Daemon {
@@ -282,13 +289,16 @@ impl Daemon {
             .as_path()
             .to_path_buf();
         let state_dir = codex_home.as_path().join(STATE_DIR_NAME);
+        let managed_codex_bin = managed_codex_bin(codex_home.as_path());
+        let source_install = is_source_standalone_install(&managed_codex_bin);
         Ok(Self {
             socket_path,
             pid_file: state_dir.join(PID_FILE_NAME),
             update_pid_file: state_dir.join(UPDATE_PID_FILE_NAME),
             operation_lock_file: state_dir.join(OPERATION_LOCK_FILE_NAME),
             settings_file: state_dir.join(SETTINGS_FILE_NAME),
-            managed_codex_bin: managed_codex_bin(codex_home.as_path()),
+            managed_codex_bin,
+            source_install,
         })
     }
 
@@ -456,6 +466,26 @@ impl Daemon {
             .output(
                 LifecycleStatus::NotRunning,
                 /*backend*/ None,
+                /*pid*/ None,
+                /*app_server_version*/ None,
+            )
+            .await)
+    }
+
+    async fn stop_updater(&self) -> Result<LifecycleOutput> {
+        let _operation_lock = self.acquire_operation_lock().await?;
+        let settings = self.load_settings().await?;
+        let updater = backend::pid_update_loop_backend(self.backend_paths(&settings));
+        let status = if updater.is_starting_or_running().await? {
+            updater.stop().await?;
+            LifecycleStatus::Stopped
+        } else {
+            LifecycleStatus::NotRunning
+        };
+        Ok(self
+            .output(
+                status,
+                Some(BackendKind::Pid),
                 /*pid*/ None,
                 /*app_server_version*/ None,
             )
@@ -638,14 +668,16 @@ impl Daemon {
         if updater.is_starting_or_running().await? {
             updater.stop().await?;
         }
-        updater.start().await?;
+        if !self.source_install {
+            updater.start().await?;
+        }
 
         let info = self.wait_until_ready().await?;
         let managed_codex_version = self.managed_codex_version_best_effort().await;
         Ok(BootstrapOutput {
             status: BootstrapStatus::Bootstrapped,
             backend: BackendKind::Pid,
-            auto_update_enabled: true,
+            auto_update_enabled: !self.source_install,
             remote_control_enabled: settings.remote_control_enabled,
             managed_codex_path: self.managed_codex_bin.clone(),
             managed_codex_version,
@@ -689,6 +721,9 @@ impl Daemon {
     }
 
     async fn is_bootstrapped(&self, settings: &DaemonSettings) -> Result<bool> {
+        if self.source_install {
+            return Ok(self.settings_file.is_file());
+        }
         let updater = backend::pid_update_loop_backend(self.backend_paths(settings));
         updater.is_starting_or_running().await
     }
@@ -898,6 +933,7 @@ mod tests {
     use super::BootstrapOutput;
     use super::BootstrapStatus;
     use super::Daemon;
+    use super::DaemonSettings;
     use super::LifecycleOutput;
     use super::LifecycleStatus;
     use super::RemoteControlStartOutput;
@@ -1080,6 +1116,7 @@ mod tests {
             operation_lock_file: temp_dir.path().join("daemon.lock"),
             settings_file: temp_dir.path().join("settings.json"),
             managed_codex_bin: temp_dir.path().join("missing-codex"),
+            source_install: false,
         };
         let stderr_log = daemon.pid_file.with_extension("stderr.log");
         tokio::fs::write(&stderr_log, "unexpected argument")
@@ -1096,6 +1133,31 @@ mod tests {
                 daemon.managed_codex_bin.display(),
                 stderr_log.display()
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn source_install_is_bootstrapped_without_an_updater_process() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let settings_file = temp_dir.path().join("settings.json");
+        tokio::fs::write(&settings_file, "{}\n")
+            .await
+            .expect("write settings");
+        let daemon = Daemon {
+            socket_path: temp_dir.path().join("app-server-control.sock"),
+            pid_file: temp_dir.path().join("app-server.pid"),
+            update_pid_file: temp_dir.path().join("app-server-updater.pid"),
+            operation_lock_file: temp_dir.path().join("daemon.lock"),
+            settings_file,
+            managed_codex_bin: temp_dir.path().join("codex"),
+            source_install: true,
+        };
+
+        assert!(
+            daemon
+                .is_bootstrapped(&DaemonSettings::default())
+                .await
+                .expect("check bootstrap state")
         );
     }
 }

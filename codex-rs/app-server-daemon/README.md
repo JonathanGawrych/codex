@@ -103,6 +103,18 @@ other tool updates the managed binary path:
   app-server is running, it refreshes app-server first and then refreshes itself
   once that replacement starts successfully
 
+### Source-built standalone installs
+
+A Codex binary built from a checkout whose `.git` directory is still available
+can be installed with `scripts/install-from-source.sh` or `just install-source`.
+The source installer assembles the canonical standalone package, updates the
+managed `current` link, stops the official standalone updater, and restarts an
+already-configured app-server with the source-built binary. Source installs use
+the repository-local `$update-codex` skill from that checkout instead of the detached
+official-release downloader. The source build reuses the package builder's
+checksum-verified Codex V8 artifacts instead of relying on rusty_v8's incomplete
+set of upstream prebuilt archives.
+
 ## Lifecycle semantics
 
 `start` is idempotent and returns after app-server is ready to answer the normal
@@ -118,8 +130,11 @@ Top-level `codex remote-control` bootstraps with `--remote-control` when the
 updater loop is not running. Otherwise it enables remote control and starts the
 daemon normally.
 
-`stop` sends a graceful termination request first, then sends a second
-termination signal after the grace window if the process is still alive.
+`stop` sends a graceful termination request to app-server and returns an error
+if app-server does not exit before the timeout. It never forcibly terminates
+app-server because that can interrupt a rollout write. The detached updater
+loop may be forcibly terminated after its grace window because it does not
+write session history.
 
 All mutating lifecycle commands are serialized per `CODEX_HOME`, so a concurrent
 `start`, `restart`, `enable-remote-control`, `disable-remote-control`, `stop`,

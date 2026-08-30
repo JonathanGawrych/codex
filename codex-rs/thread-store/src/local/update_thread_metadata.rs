@@ -23,6 +23,7 @@ use super::pending_thread_metadata;
 use super::thread_rollout_resolver;
 use super::thread_rollout_resolver::ResolvedThreadRollout;
 use super::thread_rollout_resolver::RolloutLocation;
+use crate::AppendThreadItemsParams;
 use crate::GitInfoPatch;
 use crate::ReadThreadParams;
 use crate::StoredThread;
@@ -164,7 +165,13 @@ pub(super) async fn update_thread_metadata(
     let name = patch.name;
     let git_info = patch.git_info;
     if let Some(memory_mode) = patch.memory_mode {
-        apply_thread_memory_mode(resolved_rollout.path.as_path(), thread_id, memory_mode).await?;
+        apply_thread_memory_mode(
+            store,
+            resolved_rollout.path.as_path(),
+            thread_id,
+            memory_mode,
+        )
+        .await?;
         refresh_resolved_rollout_path(&mut resolved_rollout).await;
     }
 
@@ -234,6 +241,7 @@ pub(super) async fn update_thread_metadata(
     };
     if let Some(((sha, branch, origin_url), memory_mode)) = resolved_git_info.as_ref() {
         apply_thread_git_info_to_rollout(
+            store,
             resolved_rollout.path.as_path(),
             thread_id,
             sha,
@@ -798,6 +806,7 @@ fn resolve_git_info_patch(
 }
 
 async fn apply_thread_git_info_to_rollout(
+    store: &LocalThreadStore,
     rollout_path: &Path,
     thread_id: ThreadId,
     sha: &Option<String>,
@@ -826,14 +835,19 @@ async fn apply_thread_git_info_to_rollout(
         repository_url: origin_url.clone(),
     });
     session_meta.meta.memory_mode = memory_mode.map(str::to_string);
-    append_rollout_item_to_path(rollout_path, &RolloutItem::SessionMeta(session_meta))
-        .await
-        .map_err(|err| ThreadStoreError::Internal {
-            message: format!("failed to set thread git metadata: {err}"),
-        })
+    let item = RolloutItem::SessionMeta(session_meta);
+    append_thread_metadata_item_to_rollout(
+        store,
+        rollout_path,
+        thread_id,
+        item,
+        "failed to set thread git metadata",
+    )
+    .await
 }
 
 async fn apply_thread_memory_mode(
+    store: &LocalThreadStore,
     rollout_path: &Path,
     thread_id: ThreadId,
     memory_mode: ThreadMemoryMode,
@@ -857,11 +871,45 @@ async fn apply_thread_memory_mode(
     // code will preserve the latest prior git marker when this field is absent.
     session_meta.git = None;
     session_meta.meta.memory_mode = Some(memory_mode_as_str(memory_mode).to_string());
-    append_rollout_item_to_path(rollout_path, &RolloutItem::SessionMeta(session_meta))
-        .await
-        .map_err(|err| ThreadStoreError::Internal {
-            message: format!("failed to set thread memory mode: {err}"),
-        })
+    let item = RolloutItem::SessionMeta(session_meta);
+    append_thread_metadata_item_to_rollout(
+        store,
+        rollout_path,
+        thread_id,
+        item,
+        "failed to set thread memory mode",
+    )
+    .await
+}
+
+async fn append_thread_metadata_item_to_rollout(
+    store: &LocalThreadStore,
+    rollout_path: &Path,
+    thread_id: ThreadId,
+    item: RolloutItem,
+    failure_context: &'static str,
+) -> ThreadStoreResult<()> {
+    match live_writer::append_items(
+        store,
+        AppendThreadItemsParams {
+            thread_id,
+            items: vec![item.clone()],
+        },
+    )
+    .await
+    {
+        Ok(()) => Ok(()),
+        Err(ThreadStoreError::ThreadNotFound { .. }) => {
+            append_rollout_item_to_path(rollout_path, &item)
+                .await
+                .map_err(|err| ThreadStoreError::Internal {
+                    message: format!("{failure_context}: {err}"),
+                })
+        }
+        Err(err) => Err(ThreadStoreError::Internal {
+            message: format!("{failure_context}: {err}"),
+        }),
+    }
 }
 
 fn memory_mode_as_str(mode: ThreadMemoryMode) -> &'static str {

@@ -74,6 +74,12 @@ enum PidCommandKind {
     UpdateLoop,
 }
 
+impl PidCommandKind {
+    fn allows_forced_stop(self) -> bool {
+        matches!(self, Self::UpdateLoop)
+    }
+}
+
 impl PidBackend {
     pub(crate) fn new(codex_bin: PathBuf, pid_file: PathBuf, remote_control_enabled: bool) -> Self {
         let lock_file = pid_file.with_extension("pid.lock");
@@ -191,7 +197,10 @@ impl PidBackend {
                 if tokio::time::Instant::now() >= deadline {
                     break;
                 }
-                if !forced && started_at.elapsed() >= STOP_GRACE_PERIOD {
+                if !forced
+                    && self.command_kind.allows_forced_stop()
+                    && started_at.elapsed() >= STOP_GRACE_PERIOD
+                {
                     #[cfg(unix)]
                     self.force_terminate_process(pid)?;
                     #[cfg(windows)]
