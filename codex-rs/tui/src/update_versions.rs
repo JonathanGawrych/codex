@@ -1,3 +1,9 @@
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StableRelease {
+    pub(crate) tag: String,
+    pub(crate) version: String,
+}
+
 #[cfg(any(not(debug_assertions), test))]
 pub(crate) fn is_newer(latest: &str, current: &str) -> Option<bool> {
     match (parse_version(latest), parse_version(current)) {
@@ -44,11 +50,31 @@ pub(crate) fn server_version_notice_kind(
 }
 
 #[cfg(any(not(debug_assertions), test))]
+pub(crate) fn is_stable_release_version(version: &str) -> bool {
+    parse_version(version).is_some()
+}
+
+pub(crate) fn latest_stable_release(tags: &str) -> Option<StableRelease> {
+    tags.lines()
+        .filter_map(|tag| {
+            let version = tag.strip_prefix("rust-v")?;
+            let parsed_version = parse_version(version)?;
+            Some((parsed_version, tag, version))
+        })
+        .max_by_key(|(parsed_version, _, _)| *parsed_version)
+        .map(|(_, tag, version)| StableRelease {
+            tag: tag.to_string(),
+            version: version.to_string(),
+        })
+}
 fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let mut iter = v.trim().split('.');
     let maj = iter.next()?.parse::<u64>().ok()?;
     let min = iter.next()?.parse::<u64>().ok()?;
     let pat = iter.next()?.parse::<u64>().ok()?;
+    if iter.next().is_some() {
+        return None;
+    }
     Some((maj, min, pat))
 }
 
@@ -88,6 +114,21 @@ mod tests {
     fn source_build_version_is_not_checked() {
         assert!(is_source_build_version("0.0.0"));
         assert!(!is_source_build_version("0.1.0"));
+        assert!(is_stable_release_version("0.150.1"));
+        assert!(!is_stable_release_version("0.151.0-alpha.1"));
+    }
+
+    #[test]
+    fn latest_stable_release_ignores_prerelease_and_malformed_tags() {
+        assert_eq!(
+            latest_stable_release(
+                "rust-v0.150.0\nrust-v0.151.0-alpha.1\nrust-v0.150.1\nrust-vv0.999.0\n"
+            ),
+            Some(StableRelease {
+                tag: "rust-v0.150.1".to_string(),
+                version: "0.150.1".to_string(),
+            })
+        );
     }
 
     #[test]

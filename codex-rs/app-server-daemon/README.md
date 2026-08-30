@@ -156,6 +156,18 @@ other tool updates the managed binary path:
   managed start recovers it but cannot infer the running server's previous
   executable identity; use `codex app-server daemon restart` to refresh the server
 
+### Source-built standalone installs
+
+A Codex binary built from a checkout whose `.git` directory is still available
+can be installed with `scripts/install-from-source.sh` or `just install-source`.
+The source installer assembles the canonical standalone package, updates the
+managed `current` link, stops the official standalone updater, and restarts an
+already-configured app-server with the source-built binary. Source installs use
+the repository-local `$update-codex` skill from that checkout instead of the detached
+official-release downloader. The source build reuses the package builder's
+checksum-verified Codex V8 artifacts instead of relying on rusty_v8's incomplete
+set of upstream prebuilt archives.
+
 ## Lifecycle semantics
 
 `start` is idempotent and returns after app-server is ready to answer the normal
@@ -175,8 +187,11 @@ the managed daemon without clearing its saved remote-control preference.
 `daemon start` and `daemon restart` use that saved preference. `daemon bootstrap`
 sets it according to `--remote-control` (disabled when omitted).
 
-`stop` sends a graceful termination request first, then force-terminates the
-process after the configured grace window if it is still alive.
+`stop` sends a graceful termination request to app-server and returns an error
+if app-server does not exit before the timeout. It never forcibly terminates
+app-server because that can interrupt a rollout write. The detached updater
+loop may be forcibly terminated after its grace window because it does not
+write session history.
 
 All mutating lifecycle commands are serialized per `CODEX_HOME`, so a concurrent
 `start`, `restart`, `enable-remote-control`, `disable-remote-control`, `stop`,

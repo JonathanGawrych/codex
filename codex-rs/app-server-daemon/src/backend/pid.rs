@@ -89,6 +89,12 @@ enum PidCommandKind {
     UpdateLoop { restore_release: Option<String> },
 }
 
+impl PidCommandKind {
+    fn allows_forced_stop(&self) -> bool {
+        matches!(self, Self::UpdateLoop { .. })
+    }
+}
+
 impl PidBackend {
     pub(crate) async fn running_executable_identity(&self) -> Result<Option<ExecutableIdentity>> {
         match self.read_pid_file_state().await? {
@@ -226,7 +232,10 @@ impl PidBackend {
                 if tokio::time::Instant::now() >= deadline {
                     break;
                 }
-                if !forced && started_at.elapsed() >= force_after {
+                if !forced
+                    && self.command_kind.allows_forced_stop()
+                    && started_at.elapsed() >= force_after
+                {
                     #[cfg(unix)]
                     self.force_terminate_process(pid)?;
                     #[cfg(windows)]

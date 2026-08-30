@@ -8,6 +8,7 @@ use anyhow::Context;
 use codex_protocol::ThreadId;
 
 use crate::update_action::source_checkout_root;
+use crate::update_versions::latest_stable_release;
 
 const SOURCE_UPDATE_MARKER_DIR: &str = "codex-source-update";
 
@@ -41,13 +42,27 @@ fn validate_source_update(checkout_root: &Path) -> anyhow::Result<()> {
         anyhow::bail!("the source checkout has uncommitted changes:\n{status}");
     }
 
-    run_git(checkout_root, &["rev-parse", "--verify", "origin/main"])
-        .context("origin/main is not available")?;
+    let tags = run_git(checkout_root, &["tag", "--list", "rust-v*"])?;
+    let latest_release = latest_stable_release(&tags)
+        .context("no stable rust-vMAJOR.MINOR.PATCH release tag is available")?;
+    let release_commit = format!("{}^{{commit}}", latest_release.tag);
+    run_git(checkout_root, &["rev-parse", "--verify", &release_commit])
+        .with_context(|| format!("{} is not available", latest_release.tag))?;
     run_git(
         checkout_root,
-        &["merge-base", "--is-ancestor", "origin/main", "HEAD"],
+        &[
+            "merge-base",
+            "--is-ancestor",
+            latest_release.tag.as_str(),
+            "HEAD",
+        ],
     )
-    .context("the current branch is not rebased onto origin/main")?;
+    .with_context(|| {
+        format!(
+            "the current branch is not rebased onto {}",
+            latest_release.tag
+        )
+    })?;
 
     Ok(())
 }
