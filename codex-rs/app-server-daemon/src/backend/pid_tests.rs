@@ -14,6 +14,7 @@ use super::PidCommandKind;
 use super::PidFileState;
 use super::PidLogTail;
 use super::PidRecord;
+use super::STOP_FORCE_TIMEOUT;
 #[cfg(unix)]
 use super::read_process_start_time;
 use super::read_stderr_log_tail;
@@ -452,9 +453,20 @@ async fn shutdown_grace_handles_process_exit() {
             child.kill().expect("clean up daemon shim");
         }
         let _ = child.wait(); // The backend may already have reaped a Unix child.
-        result.expect("stop deadline").expect("stop outcome");
+        if cfg!(unix) && !exits {
+            assert!(
+                result.is_err(),
+                "an active app-server must keep shutdown waiting"
+            );
+            assert!(
+                still_running,
+                "{name} must not force the app-server to stop"
+            );
+        } else {
+            result.expect("stop deadline").expect("stop outcome");
+            assert!(!still_running, "{name}");
+        }
         assert_eq!(ready.with_extension("exited").exists(), exits);
-        assert!(!still_running, "{name}");
     }
 }
 
@@ -608,13 +620,21 @@ fn app_server_remote_control_uses_runtime_flag() {
 
 #[test]
 fn app_server_stop_never_forces_process_termination() {
-    assert!(
-        !PidCommandKind::AppServer {
-            remote_control_enabled: true,
-        }
-        .allows_forced_stop()
+    let app_server = PidCommandKind::AppServer {
+        remote_control_enabled: true,
+    };
+    assert!(!app_server.allows_forced_stop());
+    let grace_period = Duration::from_secs(5);
+    assert_eq!(app_server.stop_timeout(grace_period), None);
+
+    let update_loop = PidCommandKind::UpdateLoop {
+        restore_release: None,
+    };
+    assert!(update_loop.allows_forced_stop());
+    assert_eq!(
+        update_loop.stop_timeout(grace_period),
+        Some(grace_period + STOP_FORCE_TIMEOUT)
     );
-    assert!(PidCommandKind::UpdateLoop.allows_forced_stop());
 }
 
 #[test]

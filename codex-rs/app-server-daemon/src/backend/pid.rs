@@ -93,6 +93,13 @@ impl PidCommandKind {
     fn allows_forced_stop(&self) -> bool {
         matches!(self, Self::UpdateLoop { .. })
     }
+
+    fn stop_timeout(&self, grace_period: Duration) -> Option<Duration> {
+        match self {
+            Self::AppServer { .. } => None,
+            Self::UpdateLoop { .. } => Some(grace_period + STOP_FORCE_TIMEOUT),
+        }
+    }
 }
 
 impl PidBackend {
@@ -180,7 +187,6 @@ impl PidBackend {
             let pid = record.pid;
             let started_at = tokio::time::Instant::now();
             let force_after = Duration::from_secs(grace_seconds.into());
-            let deadline = started_at + force_after + STOP_FORCE_TIMEOUT;
             #[cfg(unix)]
             self.terminate_process(pid)?;
             #[cfg(windows)]
@@ -214,6 +220,10 @@ impl PidBackend {
                 }
                 process
             };
+            let deadline = self
+                .command_kind
+                .stop_timeout(force_after)
+                .map(|timeout| tokio::time::Instant::now() + timeout);
             let mut forced = false;
             loop {
                 #[cfg(unix)]
@@ -229,7 +239,7 @@ impl PidBackend {
                         PidFileState::Starting | PidFileState::Running(_) => break,
                     }
                 }
-                if tokio::time::Instant::now() >= deadline {
+                if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
                     break;
                 }
                 if !forced
@@ -245,7 +255,7 @@ impl PidBackend {
                 sleep(STOP_POLL_INTERVAL).await;
             }
 
-            if self.record_is_active(&record).await? {
+            if deadline.is_some() && self.record_is_active(&record).await? {
                 bail!("timed out waiting for pid-managed app server {pid} to stop");
             }
         }
