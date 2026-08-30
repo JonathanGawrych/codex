@@ -15,6 +15,7 @@ use tokio::process::Command;
 pub(crate) struct StatusLineCommandPayload {
     pub(crate) schema_version: u32,
     pub(crate) agent: StatusLineAgent,
+    pub(crate) update: Option<StatusLineUpdate>,
     pub(crate) session_id: Option<String>,
     pub(crate) cwd: String,
     pub(crate) workspace: StatusLineWorkspace,
@@ -30,6 +31,11 @@ pub(crate) struct StatusLineCommandPayload {
 pub(crate) struct StatusLineAgent {
     pub(crate) name: String,
     pub(crate) version: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct StatusLineUpdate {
+    pub(crate) latest_version: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -183,6 +189,9 @@ mod tests {
                 name: "codex".to_string(),
                 version: "0.149.1".to_string(),
             },
+            update: Some(StatusLineUpdate {
+                latest_version: "0.150.1".to_string(),
+            }),
             session_id: Some("019c-test".to_string()),
             cwd: "/Volumes/code/work/project".to_string(),
             workspace: StatusLineWorkspace {
@@ -226,6 +235,9 @@ mod tests {
           "agent": {
             "name": "codex",
             "version": "0.149.1"
+          },
+          "update": {
+            "latest_version": "0.150.1"
           },
           "session_id": "019c-test",
           "cwd": "/Volumes/code/work/project",

@@ -20,6 +20,7 @@ use crate::status_line_command::StatusLineModel;
 use crate::status_line_command::StatusLinePersonality;
 use crate::status_line_command::StatusLineRateLimitWindow;
 use crate::status_line_command::StatusLineRateLimits;
+use crate::status_line_command::StatusLineUpdate;
 use crate::status_line_command::StatusLineWorkspace;
 use crate::status_line_command::run_status_line_command;
 use crate::status_line_command::serialize_status_line_payload;
@@ -310,6 +311,16 @@ impl ChatWidget {
         let seven_day = snapshot
             .and_then(weekly_status_window)
             .map(|(window, _)| status_line_rate_limit_window(window));
+        let update_cache_file = if crate::update_action::source_checkout_root().is_some() {
+            crate::updates_cache::source_update_filepath(&self.config)
+        } else {
+            crate::updates_cache::version_filepath(&self.config)
+        };
+        let update = crate::updates_cache::read_cached_upgrade_version(
+            &update_cache_file,
+            CODEX_CLI_VERSION,
+        )
+        .map(|latest_version| StatusLineUpdate { latest_version });
 
         StatusLineCommandPayload {
             schema_version: 1,
@@ -317,6 +328,7 @@ impl ChatWidget {
                 name: "codex".to_string(),
                 version: CODEX_CLI_VERSION.to_string(),
             },
+            update,
             session_id: self.thread_id.map(|thread_id| thread_id.to_string()),
             cwd: cwd.clone(),
             workspace: StatusLineWorkspace {

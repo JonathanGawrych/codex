@@ -27,3 +27,27 @@ async fn dismiss_version_creates_cache_file_when_missing() {
         ("999.0.0", Some("999.0.0"))
     );
 }
+
+#[test]
+fn cached_upgrade_version_is_returned_only_when_newer() {
+    let cache_dir = tempdir().expect("temp cache directory");
+    let version_file = cache_dir.path().join("version.json");
+    let info = VersionInfo {
+        latest_version: "0.150.1".to_string(),
+        last_checked_at: Utc::now(),
+        dismissed_version: None,
+    };
+    std::fs::write(
+        &version_file,
+        serde_json::to_string(&info).expect("serialize version info"),
+    )
+    .expect("write version info");
+
+    assert_eq!(
+        (
+            read_cached_upgrade_version(&version_file, "0.149.1"),
+            read_cached_upgrade_version(&version_file, "0.150.1"),
+        ),
+        (Some("0.150.1".to_string()), None)
+    );
+}

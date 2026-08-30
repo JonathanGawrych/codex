@@ -8,8 +8,11 @@ use crate::update_action::UpdateAction;
 use crate::update_versions::extract_version_from_latest_tag;
 use crate::update_versions::is_newer;
 use crate::update_versions::is_source_build_version;
+use crate::update_versions::is_stable_release_version;
+use crate::update_versions::latest_stable_release;
 use crate::updates_cache::VersionInfo;
 use crate::updates_cache::read_version_info;
+use crate::updates_cache::source_update_filepath;
 use crate::updates_cache::version_filepath;
 use chrono::Duration;
 use chrono::Utc;
@@ -141,18 +144,13 @@ async fn check_for_update(
     Ok(())
 }
 
-const SOURCE_UPDATE_CACHE_FILENAME: &str = "source-update.json";
-
 fn refresh_source_checkout_if_stale(config: &Config, checkout_root: &Path) {
-    let cache_file = config
-        .codex_home
-        .join(SOURCE_UPDATE_CACHE_FILENAME)
-        .into_path_buf();
+    let cache_file = source_update_filepath(config);
     let info = read_version_info(&cache_file).ok();
-    if info
-        .as_ref()
-        .is_some_and(|info| info.last_checked_at >= Utc::now() - Duration::hours(20))
-    {
+    if info.as_ref().is_some_and(|info| {
+        is_stable_release_version(&info.latest_version)
+            && info.last_checked_at >= Utc::now() - Duration::hours(20)
+    }) {
         return;
     }
 
@@ -168,7 +166,7 @@ async fn refresh_source_checkout(checkout_root: &Path, cache_file: &Path) -> any
     let output = Command::new("git")
         .arg("-C")
         .arg(checkout_root)
-        .args(["fetch", "--prune", "origin"])
+        .args(["fetch", "--prune", "--tags", "origin"])
         .output()
         .await?;
     if !output.status.success() {
@@ -183,20 +181,23 @@ async fn refresh_source_checkout(checkout_root: &Path, cache_file: &Path) -> any
     let output = Command::new("git")
         .arg("-C")
         .arg(checkout_root)
-        .args(["rev-parse", "origin/main"])
+        .args(["tag", "--list", "rust-v*"])
         .output()
         .await?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "git rev-parse origin/main failed with status {}: {}",
+            "git tag --list rust-v* failed with status {}: {}",
             output.status,
             stderr.trim()
         );
     }
+    let tags = String::from_utf8(output.stdout)?;
+    let latest_release = latest_stable_release(&tags)
+        .ok_or_else(|| anyhow::anyhow!("no stable rust-vMAJOR.MINOR.PATCH release tag found"))?;
 
     let info = VersionInfo {
-        latest_version: String::from_utf8(output.stdout)?.trim().to_string(),
+        latest_version: latest_release.version,
         last_checked_at: Utc::now(),
         dismissed_version: None,
     };

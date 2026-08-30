@@ -2,11 +2,10 @@
 
 input=$(cat)
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
-
 DIR=$(jq -r '.workspace.current_dir // "~"' <<< "$input")
 DIR_NAME=$(basename "$DIR")
+CURRENT_VERSION=$(jq -r '.agent.version // "?"' <<< "$input")
+UPDATE_VERSION=$(jq -r '.update.latest_version // empty' <<< "$input")
 MODEL=$(jq -r '.model.display_name // "?"' <<< "$input")
 EFFORT=$(jq -r '.model.reasoning_effort // empty' <<< "$input")
 SERVICE_TIER=$(jq -r '.service_tier // empty' <<< "$input")
@@ -18,10 +17,6 @@ RATE_7D=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<< "$input" |
 RESET_5H=$(jq -r '.rate_limits.five_hour.resets_at // empty' <<< "$input" | cut -d. -f1)
 RESET_7D=$(jq -r '.rate_limits.seven_day.resets_at // empty' <<< "$input" | cut -d. -f1)
 NOW=$(date +%s)
-UPDATE_COMMITS=0
-if git -C "$REPO_ROOT" rev-parse --verify --quiet origin/main >/dev/null; then
-  UPDATE_COMMITS=$(git -C "$REPO_ROOT" rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
-fi
 
 fmt_remaining() {
   local diff=$(( $1 - NOW ))
@@ -186,7 +181,7 @@ if [[ -n "$PROFILE" ]]; then
 elif [[ -n "$PERSONALITY" ]]; then
   printf " · %s" "$PERSONALITY"
 fi
-if (( UPDATE_COMMITS > 0 )); then
-  printf " %b| Update available%b" "$UPDATE_COLOR" "$GRAY"
+if [[ -n "$UPDATE_VERSION" ]]; then
+  printf " %b| Update available (%s => %s)%b" "$UPDATE_COLOR" "$CURRENT_VERSION" "$UPDATE_VERSION" "$GRAY"
 fi
 printf "%b\n" "$RESET"

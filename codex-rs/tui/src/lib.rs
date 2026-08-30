@@ -232,7 +232,6 @@ pub use update_action::get_update_action;
 mod update_prompt;
 mod update_versions;
 mod updates;
-#[cfg(any(not(debug_assertions), test))]
 mod updates_cache;
 mod version;
 mod vim_search;
