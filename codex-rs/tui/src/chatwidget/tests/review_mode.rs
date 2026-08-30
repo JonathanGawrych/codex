@@ -299,7 +299,7 @@ async fn esc_with_review_queued_steers_shows_warning_and_does_not_interrupt() {
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
-    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(!chat.input_queue.submit_follow_up_after_interrupt);
     assert_eq!(chat.input_queue.pending_steers.len(), 1);
     assert_no_submit_op(&mut op_rx);
 
@@ -386,7 +386,7 @@ async fn restore_thread_input_state_restores_pending_steers_without_downgrading_
             queued_user_message_history_records: VecDeque::new(),
             recovered_queue: false,
             user_turn_pending_start: false,
-            submit_pending_steers_after_interrupt: false,
+            submit_follow_up_after_interrupt: false,
             current_collaboration_mode: chat.current_collaboration_mode.clone(),
             active_collaboration_mask: chat.active_collaboration_mask.clone(),
             task_running: false,
@@ -1313,7 +1313,7 @@ async fn interrupted_turn_pending_steers_message_snapshot() {
     chat.input_queue
         .pending_steers
         .push_back(pending_steer("steer 1"));
-    chat.input_queue.submit_pending_steers_after_interrupt = true;
+    chat.input_queue.submit_follow_up_after_interrupt = true;
 
     handle_turn_started(&mut chat, "turn-1");
 

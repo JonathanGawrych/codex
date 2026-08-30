@@ -233,19 +233,25 @@ impl ChatWidget {
     }
 
     /// Handle a turn aborted due to user interrupt (Esc), budget exhaustion,
-    /// or review completion.
-    /// When there are queued user messages, restore them into the composer
-    /// separated by newlines rather than auto-submitting the next one.
+    /// or review completion. An interrupt requested while user input is queued
+    /// submits that input immediately. Other aborts restore queued input into
+    /// the composer.
     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
         // Finalize, log a gentle prompt, and clear running state.
         self.finalize_turn();
-        let send_pending_steers_immediately =
-            self.input_queue.submit_pending_steers_after_interrupt;
-        self.input_queue.submit_pending_steers_after_interrupt = false;
+        let submit_follow_up_immediately = self.input_queue.submit_follow_up_after_interrupt;
+        self.input_queue.submit_follow_up_after_interrupt = false;
+        let submit_pending_steers_immediately =
+            submit_follow_up_immediately && !self.input_queue.pending_steers.is_empty();
         if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress {
-            if send_pending_steers_immediately {
+            if submit_pending_steers_immediately {
                 self.add_to_history(history_cell::new_info_event(
                     "Model interrupted to submit steer instructions.".to_owned(),
+                    /*hint*/ None,
+                ));
+            } else if submit_follow_up_immediately {
+                self.add_to_history(history_cell::new_info_event(
+                    "Model interrupted to submit the queued message.".to_owned(),
                     /*hint*/ None,
                 ));
             } else {
@@ -258,7 +264,7 @@ impl ChatWidget {
         // The server has already discarded pending input by the time the
         // interrupted turn reaches the UI, so any unacknowledged steers still
         // tracked here must be restored locally instead of waiting for a later commit.
-        if send_pending_steers_immediately {
+        if submit_follow_up_immediately {
             let pending_steers = self
                 .input_queue
                 .pending_steers
@@ -269,6 +275,8 @@ impl ChatWidget {
                 let (user_message, history_record) =
                     merge_user_messages_with_history_record(pending_steers);
                 self.submit_user_message_with_history_record(user_message, history_record);
+            } else if self.has_queued_follow_up_messages() {
+                self.maybe_send_next_queued_input();
             } else if let Some(combined) = self.drain_pending_messages_for_restore() {
                 self.restore_composer_state(combined);
             }
@@ -514,9 +522,7 @@ impl ChatWidget {
                 .clone(),
             recovered_queue: self.input_queue.recovered_queue,
             user_turn_pending_start: self.input_queue.user_turn_pending_start,
-            submit_pending_steers_after_interrupt: self
-                .input_queue
-                .submit_pending_steers_after_interrupt,
+            submit_follow_up_after_interrupt: self.input_queue.submit_follow_up_after_interrupt,
             current_collaboration_mode: self.current_collaboration_mode.clone(),
             active_collaboration_mask: self.active_collaboration_mask.clone(),
             task_running: self.bottom_pane.is_task_running(),
@@ -544,8 +550,8 @@ impl ChatWidget {
             );
             self.input_queue.user_turn_pending_start =
                 preserve_in_flight_turn && input_state.user_turn_pending_start;
-            self.input_queue.submit_pending_steers_after_interrupt =
-                preserve_in_flight_turn && input_state.submit_pending_steers_after_interrupt;
+            self.input_queue.submit_follow_up_after_interrupt =
+                preserve_in_flight_turn && input_state.submit_follow_up_after_interrupt;
             self.update_collaboration_mode_indicator();
             self.refresh_model_dependent_surfaces();
             self.restore_composer_state(input_state.composer.unwrap_or_default());

@@ -146,16 +146,16 @@ impl ChatWidget {
         }
 
         if self.chat_keymap.interrupt_turn.is_pressed(key_event)
-            && !self.input_queue.pending_steers.is_empty()
+            && (!self.input_queue.pending_steers.is_empty() || self.has_queued_follow_up_messages())
             && self.bottom_pane.is_task_running()
             && self.bottom_pane.no_modal_or_popup_active()
             && !self.should_handle_vim_insert_escape(key_event)
         {
-            self.input_queue.submit_pending_steers_after_interrupt = true;
+            self.input_queue.submit_follow_up_after_interrupt = true;
             if self.submit_op(AppCommand::interrupt()) {
                 self.pause_active_goal_for_interrupt();
             } else {
-                self.input_queue.submit_pending_steers_after_interrupt = false;
+                self.input_queue.submit_follow_up_after_interrupt = false;
             }
             return;
         }

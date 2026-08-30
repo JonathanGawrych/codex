@@ -53,9 +53,9 @@ pub(super) struct InputQueueState {
     pub(super) rejected_steer_history_records: VecDeque<UserMessageHistoryRecord>,
     /// Steers already submitted to core but not yet committed into history.
     pub(super) pending_steers: VecDeque<PendingSteer>,
-    /// When set, the next interrupt should resubmit all pending steers as one
-    /// fresh user turn instead of restoring them into the composer.
-    pub(super) submit_pending_steers_after_interrupt: bool,
+    /// When set, the next interrupt should submit a pending steer or queued
+    /// follow-up instead of restoring it into the composer.
+    pub(super) submit_follow_up_after_interrupt: bool,
     /// Session action to run after the active live turn completes successfully.
     pub(super) session_exit_after_turn: Option<SessionExitAfterTurn>,
     pub(super) suppress_queue_autosend: bool,
@@ -77,7 +77,7 @@ impl InputQueueState {
         self.rejected_steers_queue.clear();
         self.rejected_steer_history_records.clear();
         self.pending_steers.clear();
-        self.submit_pending_steers_after_interrupt = false;
+        self.submit_follow_up_after_interrupt = false;
         self.session_exit_after_turn = None;
         self.rate_limit_recovery_pending = false;
     }
@@ -163,7 +163,7 @@ mod tests {
             .rejected_steers_queue
             .push_back(UserMessage::from("rejected"));
         state.user_turn_pending_start = true;
-        state.submit_pending_steers_after_interrupt = true;
+        state.submit_follow_up_after_interrupt = true;
         state.session_exit_after_turn = Some(SessionExitAfterTurn::Archive);
 
         state.clear();
@@ -174,7 +174,7 @@ mod tests {
         assert!(state.rejected_steers_queue.is_empty());
         assert!(state.rejected_steer_history_records.is_empty());
         assert!(state.pending_steers.is_empty());
-        assert!(!state.submit_pending_steers_after_interrupt);
+        assert!(!state.submit_follow_up_after_interrupt);
         assert_eq!(state.session_exit_after_turn, None);
     }
 }

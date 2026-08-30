@@ -119,7 +119,7 @@ impl ChatWidget {
         duration_ms: Option<i64>,
         from_replay: bool,
     ) {
-        self.input_queue.submit_pending_steers_after_interrupt = false;
+        self.input_queue.submit_follow_up_after_interrupt = false;
         let sanitized_last_agent_message = last_agent_message.as_deref().map(|message| {
             parse_assistant_markdown(message, self.config.cwd.as_path()).visible_markdown
         });
@@ -383,7 +383,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_server_overloaded_error(&mut self, message: String) {
-        self.input_queue.submit_pending_steers_after_interrupt = false;
+        self.input_queue.submit_follow_up_after_interrupt = false;
         self.finalize_turn();
 
         let message = if message.trim().is_empty() {
@@ -398,7 +398,7 @@ impl ChatWidget {
     }
 
     fn on_error(&mut self, message: String) {
-        self.input_queue.submit_pending_steers_after_interrupt = false;
+        self.input_queue.submit_follow_up_after_interrupt = false;
         self.flush_answer_stream_with_separator();
         self.finalize_turn();
         self.add_to_history(history_cell::new_error_event(message));
@@ -421,7 +421,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_cyber_policy_error(&mut self) {
-        self.input_queue.submit_pending_steers_after_interrupt = false;
+        self.input_queue.submit_follow_up_after_interrupt = false;
         self.finalize_turn();
         let notice = if self.config.model_provider_id == "openai" {
             self.cyber_policy_notice
@@ -518,7 +518,7 @@ impl ChatWidget {
                         .is_some_and(is_safety_access_block_message)
             })
         {
-            self.input_queue.submit_pending_steers_after_interrupt = false;
+            self.input_queue.submit_follow_up_after_interrupt = false;
             self.finalize_turn();
             self.add_to_history(history_cell::new_safety_access_block_event());
             self.request_redraw();

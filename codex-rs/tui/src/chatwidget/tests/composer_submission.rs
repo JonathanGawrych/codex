@@ -1737,6 +1737,47 @@ async fn output_free_ctrl_c_interrupt_keeps_prompt_and_opens_blank_composer() {
 }
 
 #[tokio::test]
+async fn esc_interrupt_submits_queued_message_and_preserves_composer_draft() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    handle_turn_started(&mut chat, "turn-1");
+    chat.queue_user_message(UserMessage::from("queued follow-up"));
+    chat.bottom_pane
+        .set_composer_text("current draft".to_string(), Vec::new(), Vec::new());
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    next_interrupt_op(&mut op_rx);
+    assert!(chat.input_queue.submit_follow_up_after_interrupt);
+
+    handle_turn_interrupted(&mut chat, "turn-1");
+
+    match next_submit_op(&mut op_rx) {
+        Op::UserTurn { items, .. } => assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: "queued follow-up".to_string(),
+                text_elements: Vec::new(),
+            }]
+        ),
+        other => panic!("expected queued follow-up submission, got {other:?}"),
+    }
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+    assert_eq!(chat.bottom_pane.composer_text(), "current draft");
+    assert!(!chat.input_queue.submit_follow_up_after_interrupt);
+
+    let history = drain_insert_history(&mut rx)
+        .iter()
+        .map(|cell| lines_to_single_string(cell))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        history.contains("Model interrupted to submit the queued message."),
+        "expected queued-message interrupt notice, got {history:?}"
+    );
+}
+
+#[tokio::test]
 async fn pending_steer_esc_does_not_steal_vim_insert_escape() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
@@ -1753,7 +1794,7 @@ async fn pending_steer_esc_does_not_steal_vim_insert_escape() {
 
     assert!(!chat.should_handle_vim_insert_escape(esc));
     assert_eq!(chat.input_queue.pending_steers.len(), 1);
-    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(!chat.input_queue.submit_follow_up_after_interrupt);
     assert!(op_rx.try_recv().is_err());
 
     chat.handle_key_event(esc);
@@ -1762,7 +1803,7 @@ async fn pending_steer_esc_does_not_steal_vim_insert_escape() {
         Ok(Op::Interrupt) => {}
         other => panic!("expected Op::Interrupt, got {other:?}"),
     }
-    assert!(chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(chat.input_queue.submit_follow_up_after_interrupt);
 }
 
 #[tokio::test]
@@ -1779,7 +1820,7 @@ async fn pending_steer_interrupt_uses_remapped_binding() {
 
     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
-    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(!chat.input_queue.submit_follow_up_after_interrupt);
     assert!(op_rx.try_recv().is_err());
 
     chat.handle_key_event(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE));
@@ -1788,7 +1829,7 @@ async fn pending_steer_interrupt_uses_remapped_binding() {
         Ok(Op::Interrupt) => {}
         other => panic!("expected Op::Interrupt, got {other:?}"),
     }
-    assert!(chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(chat.input_queue.submit_follow_up_after_interrupt);
 }
 
 #[tokio::test]
@@ -1822,7 +1863,7 @@ async fn restore_thread_input_state_applies_running_state_policy() {
         queued_user_message_history_records: VecDeque::from([queued_history.clone()]),
         recovered_queue: false,
         user_turn_pending_start: true,
-        submit_pending_steers_after_interrupt: true,
+        submit_follow_up_after_interrupt: true,
         current_collaboration_mode: chat.current_collaboration_mode.clone(),
         active_collaboration_mask: chat.active_collaboration_mask.clone(),
         task_running: true,
@@ -1839,11 +1880,11 @@ async fn restore_thread_input_state_applies_running_state_policy() {
     assert!(chat.turn_lifecycle.sleep_inhibitor.is_turn_running());
     assert!(chat.bottom_pane.is_task_running());
     assert!(chat.input_queue.user_turn_pending_start);
-    assert!(chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(chat.input_queue.submit_follow_up_after_interrupt);
     let captured_input_state = chat
         .capture_thread_input_state()
         .expect("thread input state");
-    assert!(captured_input_state.submit_pending_steers_after_interrupt);
+    assert!(captured_input_state.submit_follow_up_after_interrupt);
     assert_eq!(
         captured_input_state.safety_buffering_prompt,
         Some(UserMessage::from("buffered prompt"))
@@ -1880,7 +1921,7 @@ async fn restore_thread_input_state_applies_running_state_policy() {
     assert!(!chat.turn_lifecycle.sleep_inhibitor.is_turn_running());
     assert!(!chat.bottom_pane.is_task_running());
     assert!(!chat.input_queue.user_turn_pending_start);
-    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+    assert!(!chat.input_queue.submit_follow_up_after_interrupt);
     assert!(chat.input_queue.pending_steers.is_empty());
     assert_eq!(chat.bottom_pane.composer_text(), "composer draft");
     assert_eq!(
