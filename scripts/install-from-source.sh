@@ -50,6 +50,8 @@ daemon_state_dir="$codex_home_dir/app-server-daemon"
 daemon_was_configured=false
 remote_control_enabled=false
 stage_dir=""
+activation_stage_dir=""
+previous_active_dir=""
 
 is_descendant_of_pid() {
   ancestor_pid="$1"
@@ -88,6 +90,26 @@ case "$(uname -s):$(uname -m)" in
     exit 1
     ;;
 esac
+
+active_release_dir="$releases_dir/source-current-$vendor_target"
+
+cleanup() {
+  if [ -n "$stage_dir" ]; then
+    rm -rf "$stage_dir"
+  fi
+  if [ -n "$activation_stage_dir" ]; then
+    rm -rf "$activation_stage_dir"
+  fi
+  if [ -n "$previous_active_dir" ] &&
+    { [ -e "$previous_active_dir" ] || [ -L "$previous_active_dir" ]; }; then
+    if [ ! -e "$active_release_dir" ]; then
+      mv "$previous_active_dir" "$active_release_dir"
+    else
+      rm -rf "$previous_active_dir"
+    fi
+  fi
+}
+trap cleanup EXIT INT TERM
 
 target_dir="$codex_root/target/$vendor_target/release"
 codex_bin="$target_dir/codex"
@@ -139,6 +161,15 @@ if [ ! -x "$codex_bin" ] || [ ! -x "$code_mode_host_bin" ]; then
   exit 1
 fi
 
+if [ "$(uname -s)" = Darwin ]; then
+  echo "==> Signing Codex release binaries"
+  "$checkout_root/scripts/codex-source-signing.sh" \
+    "$codex_bin" \
+    com.openai.codex.source \
+    "$code_mode_host_bin" \
+    com.openai.codex.source.code-mode-host
+fi
+
 version="$($codex_bin --version | awk 'NR == 1 { print $2 }')"
 if [ -z "$version" ]; then
   echo "Could not read the Codex version from $codex_bin." >&2
@@ -176,12 +207,6 @@ if [ ! -x "$release_dir/bin/codex" ] ||
   fi
 
   stage_dir="$(mktemp -d "$standalone_root/.source-install.XXXXXX")"
-  cleanup() {
-    if [ -n "$stage_dir" ]; then
-      rm -rf "$stage_dir"
-    fi
-  }
-  trap cleanup EXIT INT TERM
 
   set -- \
     --target "$vendor_target" \
@@ -222,8 +247,25 @@ replace_with_symlink() {
   fi
 }
 
-echo "==> Activating $release_dir"
-replace_with_symlink "$current_link" "$release_dir"
+echo "==> Installing the stable source package at $active_release_dir"
+activation_stage_dir="$(mktemp -d "$standalone_root/.source-activate.XXXXXX")"
+mkdir "$activation_stage_dir/package"
+cp -R "$release_dir/." "$activation_stage_dir/package/"
+
+if [ -e "$active_release_dir" ] || [ -L "$active_release_dir" ]; then
+  previous_active_dir="$standalone_root/.source-previous.$$"
+  mv "$active_release_dir" "$previous_active_dir"
+fi
+mv "$activation_stage_dir/package" "$active_release_dir"
+rm -rf "$activation_stage_dir"
+activation_stage_dir=""
+if [ -n "$previous_active_dir" ]; then
+  rm -rf "$previous_active_dir"
+  previous_active_dir=""
+fi
+
+echo "==> Activating $active_release_dir"
+replace_with_symlink "$current_link" "$active_release_dir"
 replace_with_symlink "$bin_dir/codex" "$current_link/bin/codex"
 replace_with_symlink "$bin_dir/codex-code-mode-host" "$current_link/bin/codex-code-mode-host"
 
