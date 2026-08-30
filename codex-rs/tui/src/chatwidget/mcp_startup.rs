@@ -29,6 +29,16 @@ pub(crate) enum McpStartupStatus {
 }
 
 impl ChatWidget {
+    /// Terminal startup states remain tracked until the complete expected server set arrives.
+    /// Only a server still starting represents visible startup activity.
+    pub(super) fn is_mcp_startup_running(&self) -> bool {
+        self.mcp_startup_status.as_ref().is_some_and(|statuses| {
+            statuses
+                .values()
+                .any(|status| matches!(status, McpStartupStatus::Starting))
+        })
+    }
+
     /// Record one MCP startup update, promoting it into either the active startup
     /// round or a buffered "next" round.
     ///
@@ -121,6 +131,16 @@ impl ChatWidget {
         }
         self.mcp_startup_status = Some(startup_status);
         self.update_task_running_state();
+        let user_task_active = self.input_queue.user_turn_pending_start
+            || self.turn_lifecycle.agent_turn_running
+            || self.review.is_review_mode;
+        if !user_task_active {
+            if self.is_mcp_startup_running() {
+                self.bottom_pane.ensure_status_indicator();
+            } else {
+                self.bottom_pane.hide_status_indicator();
+            }
+        }
 
         // App-server-backed startup completes when every expected server has
         // reported a non-Starting status. Lag handling can force an earlier

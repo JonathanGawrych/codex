@@ -312,6 +312,38 @@ async fn reconnect_restores_history_permissions_and_keeps_old_input_paused() -> 
                     render_bottom_popup(&app.chat_widget, /*width*/ 80)
                 );
             }
+            app.chat_widget
+                .set_mcp_startup_expected_servers(["reported".into(), "unreported".into()]);
+            app.chat_widget.handle_server_notification(
+                ServerNotification::McpServerStatusUpdated(McpServerStatusUpdatedNotification {
+                    thread_id: Some(id.to_string()),
+                    name: "reported".into(),
+                    status: McpServerStartupState::Ready,
+                    error: None,
+                    failure_reason: None,
+                }),
+                /*replay_kind*/ None,
+            );
+            drain_history(&mut app, &mut tui, &mut session, &mut events).await?;
+            let draft = app.chat_widget.composer_text_with_pending();
+            // The first press clears the retained draft; the second exits through the new channel.
+            for _ in 0..2 {
+                app.handle_tui_event(
+                    &mut tui,
+                    &mut session,
+                    TuiEvent::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+                )
+                .await?;
+            }
+            assert_matches!(
+                events.try_recv(),
+                Ok(AppEvent::AppendMessageHistoryEntry { thread_id, text })
+                    if thread_id == id && text == draft
+            );
+            assert_matches!(
+                events.try_recv(),
+                Ok(AppEvent::Exit(ExitMode::ShutdownFirst))
+            );
         } else {
             app.chat_widget
                 .handle_key_event(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));

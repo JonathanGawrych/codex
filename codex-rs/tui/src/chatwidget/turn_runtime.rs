@@ -29,13 +29,14 @@ impl ChatWidget {
 
     /// Synchronize the bottom-pane "task running" indicator with the current lifecycles.
     ///
-    /// The bottom pane only has one running flag, but this module treats it as a derived state of
-    /// both the agent turn lifecycle and MCP startup lifecycle.
+    /// The running flag includes pending submissions, agent turns, reviews, and MCP servers
+    /// still starting. Retained terminal MCP states do not represent active work.
     pub(super) fn update_task_running_state(&mut self) {
         self.bottom_pane.set_task_running(
-            self.turn_lifecycle.agent_turn_running
+            self.input_queue.user_turn_pending_start
+                || self.turn_lifecycle.agent_turn_running
                 || self.review.is_review_mode
-                || self.mcp_startup_status.is_some(),
+                || self.is_mcp_startup_running(),
         );
         if self.mcp_startup_status.is_some()
             && !self.turn_lifecycle.agent_turn_running
@@ -92,6 +93,7 @@ impl ChatWidget {
         self.update_task_running_state();
         self.bottom_pane.ensure_status_indicator();
         self.bottom_pane.reset_status_timer(Duration::ZERO);
+        self.bottom_pane.ensure_status_indicator();
         self.status_state.retry_status_header = None;
         self.clear_active_hook_cell();
         self.status_state.pending_status_indicator_restore = false;

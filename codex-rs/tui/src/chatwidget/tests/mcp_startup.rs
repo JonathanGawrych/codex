@@ -129,6 +129,39 @@ async fn mcp_startup_dedupes_same_round_duplicate_failure_warning() {
 }
 
 #[tokio::test]
+async fn settled_mcp_status_allows_ctrl_c_to_exit_while_other_servers_have_not_reported() {
+    for status in [
+        McpServerStartupState::Ready,
+        McpServerStartupState::Failed,
+        McpServerStartupState::Cancelled,
+    ] {
+        let (mut chat, mut events, mut operations) =
+            make_chatwidget_manual(/*model_override*/ None).await;
+        chat.show_welcome_banner = false;
+        chat.set_mcp_startup_expected_servers(["reported".into(), "unreported".into()]);
+        notify_mcp_status(&mut chat, "reported", status);
+
+        // Retain the partial startup round so a later server can still report its status.
+        assert!(chat.mcp_startup_status.is_some());
+        assert!(!chat.bottom_pane.status_indicator_visible());
+        while events.try_recv().is_ok() {}
+
+        chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        assert_matches!(
+            events.try_recv(),
+            Ok(AppEvent::Exit(ExitMode::ShutdownFirst))
+        );
+        assert_no_submit_op(&mut operations);
+
+        notify_mcp_status(&mut chat, "unreported", McpServerStartupState::Starting);
+        chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        next_interrupt_op(&mut operations);
+        assert!(chat.bottom_pane.status_indicator_visible());
+    }
+}
+
+#[tokio::test]
 async fn mcp_startup_header_booting_snapshot() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.show_welcome_banner = false;
@@ -136,7 +169,7 @@ async fn mcp_startup_header_booting_snapshot() {
     notify_mcp_status(&mut chat, "alpha", McpServerStartupState::Starting);
 
     assert!(chat.bottom_pane.is_task_running());
-    assert!(!chat.bottom_pane.status_indicator_visible());
+    assert!(chat.bottom_pane.status_indicator_visible());
     let height = chat.desired_height(/*width*/ 80);
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, height))
         .expect("create terminal");
@@ -196,6 +229,36 @@ async fn mcp_startup_summary_distinguishes_initial_resume_from_task_switch() {
         }
         assert_eq!(compact_cells, vec![compact; 2]);
     }
+}
+
+#[tokio::test]
+async fn partial_terminal_mcp_status_does_not_render_working_snapshot() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.show_welcome_banner = false;
+    chat.set_mcp_startup_expected_servers(["alpha".to_string(), "beta".to_string()]);
+
+    notify_mcp_status(&mut chat, "alpha", McpServerStartupState::Ready);
+
+    assert!(chat.mcp_startup_status.is_some());
+    assert!(!chat.bottom_pane.is_task_running());
+    assert!(!chat.bottom_pane.status_indicator_visible());
+    assert_eq!(chat.run_state_status_text(), "Ready");
+
+    let height = chat.desired_height(/*width*/ 80);
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, height))
+        .expect("create terminal");
+    terminal
+        .draw(|f| chat.render(f.area(), f.buffer_mut()))
+        .expect("draw chat widget");
+    assert_chatwidget_snapshot!(
+        "partial_terminal_mcp_status_does_not_render_working",
+        normalized_backend_snapshot(terminal.backend())
+    );
+
+    handle_turn_started(&mut chat, "turn-1");
+
+    assert!(chat.bottom_pane.status_indicator_visible());
+    assert_eq!(chat.run_state_status_text(), "Working");
 }
 
 #[tokio::test]
@@ -362,7 +425,7 @@ async fn pending_mcp_startup_does_not_unblock_foreground_shell() {
 async fn pending_mcp_startup_does_not_unblock_foreground_compaction() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.dispatch_command(crate::slash_command::SlashCommand::Compact);
-    chat.set_mcp_startup_expected_servers(["slow".to_string()]);
+    chat.set_mcp_startup_expected_servers(["slow".into(), "unreported".into()]);
     notify_mcp_status(&mut chat, "slow", McpServerStartupState::Starting);
     chat.thread_id = Some(ThreadId::new());
 
@@ -370,6 +433,11 @@ async fn pending_mcp_startup_does_not_unblock_foreground_compaction() {
 
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     assert_no_submit_op(&mut op_rx);
+
+    notify_mcp_status(&mut chat, "slow", McpServerStartupState::Ready);
+    assert!(chat.bottom_pane.is_task_running());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    next_interrupt_op(&mut op_rx);
 }
 
 #[tokio::test]
@@ -440,7 +508,7 @@ async fn app_server_mcp_startup_failure_renders_warning_history() {
         .collect::<String>();
     assert!(failure_text.contains("MCP client for `alpha` failed to start: handshake failed"));
     assert!(!failure_text.contains("MCP startup incomplete"));
-    assert!(chat.bottom_pane.is_task_running());
+    assert!(!chat.bottom_pane.is_task_running());
 
     notify_mcp_status(&mut chat, "beta", McpServerStartupState::Starting);
 
@@ -707,7 +775,7 @@ async fn app_server_mcp_startup_after_lag_can_settle_without_starting_updates() 
         .map(|lines| lines_to_single_string(lines))
         .collect::<String>();
     assert!(failure_text.contains("MCP client for `alpha` failed to start: handshake failed"));
-    assert!(chat.bottom_pane.is_task_running());
+    assert!(!chat.bottom_pane.is_task_running());
 
     notify_mcp_status(&mut chat, "beta", McpServerStartupState::Ready);
 
@@ -884,7 +952,7 @@ async fn app_server_mcp_startup_after_lag_includes_runtime_servers_with_expected
         .map(|lines| lines_to_single_string(lines))
         .collect::<String>();
     assert!(warning_text.contains("MCP client for `runtime` failed to start: handshake failed"));
-    assert!(chat.bottom_pane.is_task_running());
+    assert!(!chat.bottom_pane.is_task_running());
 
     chat.finish_mcp_startup_after_lag();
 

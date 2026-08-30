@@ -86,9 +86,9 @@ async fn subagent_mcp_startup_settles_while_cached_servers_remain_deferred() {
     }
 
     insta::assert_snapshot!(visible_startup_states.join("\n"), @r"
+    eager: • Booting MCP server: eager
     eager: idle
-    eager: idle
-    deferred: idle
+    deferred: • Booting MCP server: deferred
     deferred: idle
     ");
 }
@@ -123,7 +123,7 @@ async fn resumed_subagent_mcp_startup_settles_while_cached_servers_remain_deferr
 }
 
 #[tokio::test]
-async fn side_conversations_wait_for_every_configured_mcp_server() {
+async fn side_conversations_are_idle_between_reported_mcp_startups() {
     let mut app = make_test_app().await;
     configure_mcp_servers(&mut app);
     let root_thread_id = ThreadId::new();
@@ -134,21 +134,22 @@ async fn side_conversations_wait_for_every_configured_mcp_server() {
     app.active_thread_id = Some(side_thread_id);
     app.refresh_mcp_startup_expected_servers_from_config();
 
-    for status in [
-        McpServerStartupState::Starting,
-        McpServerStartupState::Ready,
+    for (name, status, task_running) in [
+        ("eager", McpServerStartupState::Starting, true),
+        ("eager", McpServerStartupState::Ready, false),
+        ("deferred", McpServerStartupState::Starting, true),
+        ("deferred", McpServerStartupState::Ready, false),
     ] {
         app.chat_widget.handle_server_notification(
             ServerNotification::McpServerStatusUpdated(McpServerStatusUpdatedNotification {
                 thread_id: Some(side_thread_id.to_string()),
-                name: "eager".to_string(),
+                name: name.to_string(),
                 status,
                 error: None,
                 failure_reason: None,
             }),
             /*replay_kind*/ None,
         );
+        assert_eq!(app.chat_widget.is_task_running_for_test(), task_running);
     }
-
-    assert!(app.chat_widget.is_task_running_for_test());
 }
