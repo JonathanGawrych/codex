@@ -2021,6 +2021,52 @@ async fn catch_up_preserves_trailing_partial_line_boundaries() {
 }
 
 #[tokio::test]
+async fn paginated_fork_skips_duplicate_non_history_ordinal() {
+    let home = TempDir::new().expect("temp dir");
+    let store = projection_store(home.path()).await;
+    let thread_id = ThreadId::default();
+    create_paginated_thread(&store, thread_id).await;
+    store
+        .append_items(AppendThreadItemsParams {
+            thread_id,
+            items: vec![turn_started("turn-1")],
+        })
+        .await
+        .expect("append projected turn start");
+
+    let rollout_path = store
+        .live_rollout_path(thread_id)
+        .await
+        .expect("rollout path");
+    append_suffix(
+        rollout_path.as_path(),
+        format!(
+            "{}\n{}\n",
+            rollout_line(
+                Some(1),
+                RolloutItem::EventMsg(EventMsg::TokenCount(TokenCountEvent {
+                    info: None,
+                    rate_limits: None,
+                })),
+            ),
+            rollout_line(Some(2), turn_completed("turn-1")),
+        )
+        .as_str(),
+    );
+
+    let prepared = prepare_paginated_fork(&store, thread_id, ForkBoundary::Latest).await;
+    let rollout_len = fs::metadata(rollout_path).expect("rollout metadata").len();
+    assert_eq!(
+        prepared.history_base,
+        Some(HistoryPosition {
+            thread_id,
+            end_ordinal_exclusive: 3,
+            end_byte_offset: rollout_len,
+        })
+    );
+}
+
+#[tokio::test]
 async fn catch_up_skips_invalid_complete_suffixes_and_projects_later_history() {
     let cases = [
         (
@@ -2033,7 +2079,7 @@ async fn catch_up_skips_invalid_complete_suffixes_and_projects_later_history() {
             Vec::new(),
         ),
         (
-            "duplicate ordinal",
+            "duplicate projected ordinal",
             format!(
                 "{}\n{}\n{}\n",
                 rollout_line(Some(1), turn_started("turn-1")),
