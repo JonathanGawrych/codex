@@ -56,6 +56,7 @@ use crate::skills_watcher::SkillsWatcher;
 use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
+use crate::transport::ConnectionOrigin;
 use crate::transport::RemoteControlHandle;
 use crate::turn_cost_worker::TurnCostWorker;
 use codex_analytics::AnalyticsEventsClient;
@@ -625,6 +626,7 @@ impl MessageProcessor {
     pub(crate) async fn process_request(
         self: &Arc<Self>,
         connection_id: ConnectionId,
+        connection_origin: ConnectionOrigin,
         request: JSONRPCRequest,
         transport: &AppServerTransport,
         session: Arc<ConnectionSessionState>,
@@ -648,6 +650,7 @@ impl MessageProcessor {
         let request_context = RequestContext::new(
             request_id.clone(),
             request_method,
+            connection_origin,
             request_span,
             request_trace,
         );
@@ -702,6 +705,7 @@ impl MessageProcessor {
         let mut request_context = RequestContext::new(
             request_id.clone(),
             request.method_name(),
+            ConnectionOrigin::InProcess,
             request_span,
             /*parent_trace*/ None,
         );
@@ -1624,6 +1628,7 @@ impl MessageProcessor {
                         params,
                         app_server_client_name.clone(),
                         client_version.clone(),
+                        request_context.connection_origin(),
                     )
                     .await
             }

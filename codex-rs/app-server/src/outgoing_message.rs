@@ -32,6 +32,7 @@ use tracing::warn;
 
 use crate::error_code::internal_error;
 use crate::server_request_error::TURN_TRANSITION_PENDING_REQUEST_ERROR_REASON;
+use crate::transport::ConnectionOrigin;
 pub(crate) use codex_app_server_transport::ConnectionId;
 pub(crate) use codex_app_server_transport::OutgoingError;
 pub(crate) use codex_app_server_transport::OutgoingMessage;
@@ -66,6 +67,7 @@ pub(crate) struct RequestContext {
     request_id: ConnectionRequestId,
     pub(crate) cancellation: tokio_util::sync::CancellationToken,
     cancellation_scope: RequestCancellationScope,
+    connection_origin: ConnectionOrigin,
     span: Span,
     parent_trace: Option<W3cTraceContext>,
     _diagnostics_guard: Arc<GaugeGuard>,
@@ -81,6 +83,7 @@ impl RequestContext {
     pub(crate) fn new(
         request_id: ConnectionRequestId,
         method: &str,
+        connection_origin: ConnectionOrigin,
         span: Span,
         parent_trace: Option<W3cTraceContext>,
     ) -> Self {
@@ -94,6 +97,7 @@ impl RequestContext {
                 | "userVerification/verify" => RequestCancellationScope::UserVerification,
                 _ => RequestCancellationScope::Unavailable,
             },
+            connection_origin,
             span,
             parent_trace,
             _diagnostics_guard: Arc::new(IN_FLIGHT_REQUESTS.track()),
@@ -102,6 +106,10 @@ impl RequestContext {
 
     pub(crate) fn request_trace(&self) -> Option<W3cTraceContext> {
         span_w3c_trace_context(&self.span).or_else(|| self.parent_trace.clone())
+    }
+
+    pub(crate) fn connection_origin(&self) -> ConnectionOrigin {
+        self.connection_origin
     }
 
     pub(crate) fn span(&self) -> Span {
@@ -1291,6 +1299,7 @@ mod tests {
             .register_request_context(RequestContext::new(
                 request_id.clone(),
                 "thread/start",
+                ConnectionOrigin::Stdio,
                 tracing::info_span!("app_server.request", rpc.method = "thread/start"),
                 /*parent_trace*/ None,
             ))
@@ -1451,6 +1460,7 @@ mod tests {
             .register_request_context(RequestContext::new(
                 closed_connection_request,
                 "turn/interrupt",
+                ConnectionOrigin::Stdio,
                 tracing::info_span!("app_server.request", rpc.method = "turn/interrupt"),
                 /*parent_trace*/ None,
             ))
@@ -1459,6 +1469,7 @@ mod tests {
             .register_request_context(RequestContext::new(
                 open_connection_request,
                 "turn/start",
+                ConnectionOrigin::Stdio,
                 tracing::info_span!("app_server.request", rpc.method = "turn/start"),
                 /*parent_trace*/ None,
             ))

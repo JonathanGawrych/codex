@@ -1,9 +1,9 @@
 use super::helpers::drain_insert_history_transcript;
 use super::*;
 use crate::app_event::HistoryLookupResponse;
-use codex_app_server_protocol::ImageReference;
 use chrono::Local;
 use chrono::TimeZone;
+use codex_app_server_protocol::ImageReference;
 use codex_app_server_protocol::NetworkAccess;
 use codex_app_server_protocol::SandboxPolicy;
 use codex_protocol::models::FunctionCallOutputBody;
@@ -1194,6 +1194,7 @@ async fn replayed_retryable_app_server_error_keeps_turn_running() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1529,6 +1530,7 @@ async fn live_reasoning_summary_is_not_rendered_twice_when_item_completes() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1588,6 +1590,7 @@ async fn live_reasoning_summary_drops_empty_parts_without_losing_content() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,

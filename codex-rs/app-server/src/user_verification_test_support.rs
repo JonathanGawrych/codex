@@ -205,6 +205,7 @@ impl Harness {
         self.processor
             .process_request(
                 ConnectionId(1),
+                crate::transport::ConnectionOrigin::Stdio,
                 rpc::JSONRPCRequest {
                     id: rpc::RequestId::Integer(id),
                     method: method.into(),

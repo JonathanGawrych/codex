@@ -4,6 +4,9 @@ use super::*;
 
 impl ChatWidget {
     pub(super) fn notify(&mut self, notification: Notification) {
+        if self.remote_control_turn_id.is_some() {
+            return;
+        }
         if !notification.allowed_for(&self.local_settings.tui.notification_settings.notifications) {
             return;
         }

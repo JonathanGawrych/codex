@@ -37,6 +37,7 @@ async fn initialize_second(h: &mut Harness) -> Result<Arc<ConnectionSessionState
     h.processor
         .process_request(
             ConnectionId(2),
+            crate::transport::ConnectionOrigin::Stdio,
             rpc::JSONRPCRequest {
                 id: rpc::RequestId::Integer(0),
                 method: "initialize".into(),

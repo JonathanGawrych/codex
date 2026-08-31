@@ -103,6 +103,7 @@ async fn user_verification_cancel_rpc_cannot_target_another_connection_or_id_typ
     h.processor
         .process_request(
             ConnectionId(2),
+            crate::transport::ConnectionOrigin::Stdio,
             rpc::JSONRPCRequest {
                 id: rpc::RequestId::Integer(3),
                 method: "userVerification/cancel".into(),

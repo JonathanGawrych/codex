@@ -282,6 +282,7 @@ pub(super) fn sample_turn_started_notification(
 ) -> ServerNotification {
     ServerNotification::TurnStarted(TurnStartedNotification {
         thread_id: thread_id.to_string(),
+        input_source: None,
         turn: Turn {
             id: turn_id.to_string(),
             items_view: codex_app_server_protocol::TurnItemsView::Full,

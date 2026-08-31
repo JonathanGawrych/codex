@@ -25,6 +25,7 @@ async fn user_verification_cancel_only_signals_matching_native_request_contexts(
         let context = RequestContext::new(
             target.clone(),
             method,
+            ConnectionOrigin::Stdio,
             Span::none(),
             /*parent_trace*/ None,
         );
@@ -76,6 +77,7 @@ async fn user_verification_cancel_remains_effective_until_proof_enqueue_and_clea
         let context = RequestContext::new(
             target.clone(),
             "userVerification/verify",
+            ConnectionOrigin::Stdio,
             Span::none(),
             /*parent_trace*/ None,
         );

@@ -6265,6 +6265,11 @@ class TurnEnvironmentParams(BaseModel):
     ] = None
 
 
+class TurnInputSource(Enum):
+    app_server_client = "appServerClient"
+    remote_control = "remoteControl"
+
+
 class TurnInterruptParams(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
@@ -11380,6 +11385,13 @@ class ThreadItemEntry(BaseModel):
             description="Unix timestamp (milliseconds) when the item completed, if recorded by the producer.",
         ),
     ] = None
+    created_at_ms: Annotated[
+        int | None,
+        Field(
+            alias="createdAtMs",
+            description="Unix timestamp (in milliseconds) when this item was first persisted.\n\nOlder app-server versions omit this field.",
+        ),
+    ] = None
     item: ThreadItem
     started_at_ms: Annotated[
         int | None,
@@ -11515,6 +11527,13 @@ class TurnStartedNotification(BaseModel):
     model_config = ConfigDict(
         populate_by_name=True,
     )
+    input_source: Annotated[
+        TurnInputSource | None,
+        Field(
+            alias="inputSource",
+            description="Identifies which app-server input path started this turn.",
+        ),
+    ] = None
     thread_id: Annotated[str, Field(alias="threadId")]
     turn: Turn
 

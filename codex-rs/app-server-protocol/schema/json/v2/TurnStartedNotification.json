@@ -1927,6 +1927,13 @@
       ],
       "type": "object"
     },
+    "TurnInputSource": {
+      "enum": [
+        "appServerClient",
+        "remoteControl"
+      ],
+      "type": "string"
+    },
     "TurnItemsView": {
       "oneOf": [
         {
@@ -2268,6 +2275,17 @@
     }
   },
   "properties": {
+    "inputSource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TurnInputSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Identifies which app-server input path started this turn."
+    },
     "threadId": {
       "type": "string"
     },
