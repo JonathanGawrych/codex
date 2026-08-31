@@ -1396,6 +1396,7 @@ async fn tui_auto_recap_defaults_and_cli_overrides() -> anyhow::Result<()> {
         ("[tui]", None, true),
         ("[tui]\nauto_recap = true", None, true),
         ("[tui]\nauto_recap = false", None, false),
+        ("[tui]\nautomatic_recaps = false", None, false),
         ("[tui]\nauto_recap = true", Some(false), false),
         ("[tui]\nauto_recap = false", Some(true), true),
     ] {
