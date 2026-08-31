@@ -759,6 +759,7 @@ fn session_event_to_analytics_notification(
         EventMsg::TurnStarted(started) => {
             ServerNotification::TurnStarted(TurnStartedNotification {
                 thread_id: thread_id.to_string(),
+                input_source: None,
                 turn: Turn {
                     started_at: started.started_at,
                     ..analytics_turn(&started.turn_id, TurnStatus::InProgress)

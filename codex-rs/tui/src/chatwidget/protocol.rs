@@ -123,7 +123,15 @@ impl ChatWidget {
                 if replay_kind.is_none() {
                     self.clear_misalignment_for_new_turn(&notification.turn.id);
                 }
-                self.turn_lifecycle.last_turn_id = Some(notification.turn.id);
+                let turn_id = notification.turn.id;
+                self.remote_control_turn_id = match notification.input_source {
+                    Some(TurnInputSource::RemoteControl) => {
+                        self.pending_notification = None;
+                        Some(turn_id.clone())
+                    }
+                    Some(TurnInputSource::AppServerClient) | None => None,
+                };
+                self.turn_lifecycle.last_turn_id = Some(turn_id);
                 self.last_non_retry_error = None;
                 if !matches!(replay_kind, Some(ReplayKind::ResumeInitialMessages)) {
                     self.warning_display_state.startup_complete = true;
@@ -356,6 +364,7 @@ impl ChatWidget {
         notification: TurnCompletedNotification,
         replay_kind: Option<ReplayKind>,
     ) {
+        let completed_turn_id = notification.turn.id.clone();
         // User-message dedupe only suppresses the app-server echo of a prompt
         // this TUI already rendered locally. Once that turn ends, another
         // client can submit the same text and it still needs its own user cell.
@@ -437,6 +446,9 @@ impl ChatWidget {
                 }
             }
             TurnStatus::InProgress => {}
+        }
+        if self.remote_control_turn_id.as_deref() == Some(completed_turn_id.as_str()) {
+            self.remote_control_turn_id = None;
         }
         self.thread_usage.replaying_turn_completion = was_replaying_turn_completion;
     }

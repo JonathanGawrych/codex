@@ -1191,6 +1191,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
             let _ = event_processor.process_server_notification(ServerNotification::TurnStarted(
                 TurnStartedNotification {
                     thread_id: response.review_thread_id.clone(),
+                    input_source: None,
                     turn: response.turn.clone(),
                 },
             ));

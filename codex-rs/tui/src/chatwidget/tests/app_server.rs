@@ -110,6 +110,82 @@ async fn session_and_settings_sync_server_provider_id() {
     assert!(status(&mut chat).contains("server-updated"));
 }
 
+fn handle_turn_started_with_input_source(
+    chat: &mut ChatWidget,
+    turn_id: &str,
+    input_source: TurnInputSource,
+) {
+    chat.handle_server_notification(
+        ServerNotification::TurnStarted(TurnStartedNotification {
+            thread_id: chat.thread_id.map(|id| id.to_string()).unwrap_or_default(),
+            turn: app_server_turn(
+                turn_id,
+                AppServerTurnStatus::InProgress,
+                /*duration_ms*/ None,
+                /*error*/ None,
+            ),
+            input_source: Some(input_source),
+        }),
+        /*replay_kind*/ None,
+    );
+}
+
+#[tokio::test]
+async fn remote_control_turn_suppresses_completion_and_approval_desktop_notifications() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.local_settings.tui.notification_settings.notifications = Notifications::Enabled(true);
+    chat.notify(Notification::ExecApprovalRequested {
+        command: "local command".to_string(),
+    });
+
+    handle_turn_started_with_input_source(&mut chat, "remote-turn", TurnInputSource::RemoteControl);
+
+    assert_matches!(chat.pending_notification, None);
+    chat.notify(Notification::ExecApprovalRequested {
+        command: "remote command".to_string(),
+    });
+    assert_matches!(chat.pending_notification, None);
+
+    handle_turn_completed(&mut chat, "remote-turn", /*duration_ms*/ None);
+
+    assert_matches!(chat.pending_notification, None);
+    chat.notify(Notification::ExecApprovalRequested {
+        command: "next local command".to_string(),
+    });
+    assert_matches!(
+        chat.pending_notification,
+        Some(Notification::ExecApprovalRequested { ref command })
+            if command == "next local command"
+    );
+}
+
+#[tokio::test]
+async fn app_server_client_turn_keeps_completion_and_approval_desktop_notifications() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.local_settings.tui.notification_settings.notifications = Notifications::Enabled(true);
+    handle_turn_started_with_input_source(
+        &mut chat,
+        "local-turn",
+        TurnInputSource::AppServerClient,
+    );
+
+    chat.notify(Notification::ExecApprovalRequested {
+        command: "local command".to_string(),
+    });
+    assert_matches!(
+        chat.pending_notification,
+        Some(Notification::ExecApprovalRequested { ref command }) if command == "local command"
+    );
+    chat.pending_notification = None;
+
+    handle_turn_completed(&mut chat, "local-turn", /*duration_ms*/ None);
+
+    assert_matches!(
+        chat.pending_notification,
+        Some(Notification::AgentTurnComplete { .. })
+    );
+}
+
 fn start_safety_buffering_test_turn(
     chat: &mut ChatWidget,
     op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>,
@@ -124,6 +200,7 @@ fn start_safety_buffering_test_turn(
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: thread_id.to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: turn_id.to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -763,6 +840,7 @@ async fn live_app_server_turn_completed_clears_working_status_after_answer_item(
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -840,6 +918,7 @@ async fn live_app_server_turn_started_sets_feedback_turn_id() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1373,6 +1452,7 @@ async fn live_app_server_failed_turn_does_not_duplicate_error_history() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1532,6 +1612,7 @@ async fn live_app_server_stream_recovery_restores_previous_status_header() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1611,6 +1692,7 @@ async fn live_app_server_server_overloaded_error_renders_warning() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,
@@ -1654,6 +1736,7 @@ async fn live_app_server_cyber_policy_error_renders_dedicated_notice() {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: "thread-1".to_string(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: AppServerTurn {
                 id: "turn-1".to_string(),
                 items_view: codex_app_server_protocol::TurnItemsView::Full,

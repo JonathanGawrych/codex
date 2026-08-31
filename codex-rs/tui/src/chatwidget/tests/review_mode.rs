@@ -1215,6 +1215,7 @@ async fn interrupted_turn_after_goal_budget_limited_uses_budget_message_snapshot
         codex_app_server_protocol::ServerNotification::TurnStarted(
             codex_app_server_protocol::TurnStartedNotification {
                 thread_id: "thread-1".to_string(),
+                input_source: Some(TurnInputSource::AppServerClient),
                 turn: codex_app_server_protocol::Turn {
                     id: "turn-1".to_string(),
                     items_view: codex_app_server_protocol::TurnItemsView::Full,

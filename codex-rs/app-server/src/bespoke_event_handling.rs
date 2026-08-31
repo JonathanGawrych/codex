@@ -168,8 +168,9 @@ pub(crate) async fn apply_bespoke_event_handling(
             thread_watch_manager
                 .note_turn_started(&conversation_id.to_string())
                 .await;
-            let turn = {
-                let state = thread_state.lock().await;
+            let (turn, input_source) = {
+                let mut state = thread_state.lock().await;
+                state.begin_turn_input_source();
                 let mut turn = state.active_turn_snapshot().unwrap_or_else(|| Turn {
                     id: payload.turn_id.clone(),
                     items: Vec::new(),
@@ -182,11 +183,12 @@ pub(crate) async fn apply_bespoke_event_handling(
                 });
                 turn.items.clear();
                 turn.items_view = TurnItemsView::NotLoaded;
-                turn
+                (turn, state.active_turn_input_source())
             };
             let notification = TurnStartedNotification {
                 thread_id: conversation_id.to_string(),
                 turn,
+                input_source: Some(input_source),
             };
             outgoing
                 .send_server_notification(ServerNotification::TurnStarted(notification))
@@ -1577,6 +1579,7 @@ async fn find_and_remove_turn_summary(
     thread_state: &Arc<Mutex<ThreadState>>,
 ) -> TurnSummary {
     let mut state = thread_state.lock().await;
+    state.finish_turn_input_source();
     std::mem::take(&mut state.turn_summary)
 }
 

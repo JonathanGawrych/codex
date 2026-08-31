@@ -22360,6 +22360,13 @@
       ],
       "type": "object"
     },
+    "TurnInputSource": {
+      "enum": [
+        "appServerClient",
+        "remoteControl"
+      ],
+      "type": "string"
+    },
     "TurnInterruptParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -22635,6 +22642,17 @@
     "TurnStartedNotification": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
+        "inputSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TurnInputSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Identifies which app-server input path started this turn."
+        },
         "threadId": {
           "type": "string"
         },

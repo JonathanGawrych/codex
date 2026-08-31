@@ -802,6 +802,7 @@ pub(super) fn replay_turn_started(chat: &mut ChatWidget, replay_kind: ReplayKind
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: thread_id(chat),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: app_server_turn(
                 "turn-1",
                 AppServerTurnStatus::InProgress,
@@ -1017,6 +1018,7 @@ pub(super) fn handle_turn_started(chat: &mut ChatWidget, turn_id: &str) {
     chat.handle_server_notification(
         ServerNotification::TurnStarted(TurnStartedNotification {
             thread_id: chat.thread_id.map(|id| id.to_string()).unwrap_or_default(),
+            input_source: Some(TurnInputSource::AppServerClient),
             turn: app_server_turn(
                 turn_id,
                 AppServerTurnStatus::InProgress,

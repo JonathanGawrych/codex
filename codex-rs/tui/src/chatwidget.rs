@@ -114,6 +114,7 @@ use codex_app_server_protocol::ThreadTokenUsage;
 use codex_app_server_protocol::ToolRequestUserInputParams;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnCompletedNotification;
+use codex_app_server_protocol::TurnInputSource;
 use codex_app_server_protocol::TurnPlanStepStatus;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::UserInput;
@@ -727,6 +728,7 @@ pub(crate) struct ChatWidget {
     queued_message_edit_hint_binding: Option<crate::key_hint::ShortcutHint>,
     // Pending notification to show when unfocused on next Draw
     pending_notification: Option<Notification>,
+    remote_control_turn_id: Option<String>,
     /// When `Some`, the user has pressed a quit shortcut and the second press
     /// must occur before `quit_shortcut_expires_at`.
     quit_shortcut_expires_at: Option<Instant>,

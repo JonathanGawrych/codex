@@ -7,6 +7,7 @@ use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadSettings;
 use codex_app_server_protocol::Turn;
 use codex_app_server_protocol::TurnError;
+use codex_app_server_protocol::TurnInputSource;
 use codex_core::CodexThread;
 use codex_core::ThreadConfigSnapshot;
 use codex_file_watcher::WatchRegistration;
@@ -97,6 +98,8 @@ pub(crate) struct ThreadState {
     pub(crate) pending_interrupts: PendingInterruptQueue,
     pub(crate) pending_rollbacks: Option<ConnectionRequestId>,
     pub(crate) turn_summary: TurnSummary,
+    next_turn_input_source: Option<TurnInputSource>,
+    active_turn_input_source: TurnInputSource,
     pub(crate) last_terminal_turn_id: Option<String>,
     /// Lets an internal runtime replacement wait until the old listener has processed Core's
     /// `ShutdownComplete` event before that listener is superseded.
@@ -145,6 +148,8 @@ impl ThreadState {
         self.shutdown_drain_waiter = None;
         self.listener_command_tx = None;
         self.current_turn_history.reset();
+        self.next_turn_input_source = None;
+        self.active_turn_input_source = TurnInputSource::default();
         self.listener_thread = None;
         self.watch_registration = WatchRegistration::default();
     }
@@ -161,6 +166,27 @@ impl ThreadState {
 
     pub(crate) fn active_turn_snapshot(&self) -> Option<Turn> {
         self.current_turn_history.active_turn_snapshot()
+    }
+
+    pub(crate) fn set_next_turn_input_source(&mut self, input_source: TurnInputSource) {
+        self.next_turn_input_source = Some(input_source);
+    }
+
+    pub(crate) fn clear_next_turn_input_source(&mut self) {
+        self.next_turn_input_source = None;
+    }
+
+    pub(crate) fn begin_turn_input_source(&mut self) {
+        let input_source = self.next_turn_input_source.take().unwrap_or_default();
+        self.active_turn_input_source = input_source;
+    }
+
+    pub(crate) fn active_turn_input_source(&self) -> TurnInputSource {
+        self.active_turn_input_source
+    }
+
+    pub(crate) fn finish_turn_input_source(&mut self) {
+        self.active_turn_input_source = TurnInputSource::default();
     }
 
     pub(crate) fn register_shutdown_drain_waiter(&mut self) -> oneshot::Receiver<()> {

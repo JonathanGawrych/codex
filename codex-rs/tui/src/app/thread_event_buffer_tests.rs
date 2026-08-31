@@ -16,6 +16,7 @@ use pretty_assertions::assert_eq;
 fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
     ServerNotification::TurnStarted(TurnStartedNotification {
         thread_id: thread_id.to_string(),
+        input_source: Some(codex_app_server_protocol::TurnInputSource::AppServerClient),
         turn: Turn {
             id: turn_id.to_string(),
             items_view: TurnItemsView::Full,

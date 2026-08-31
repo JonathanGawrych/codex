@@ -235,6 +235,7 @@ impl ChatWidget {
             suppress_session_configured_redraw: false,
             suppress_initial_user_message_submit: false,
             pending_notification: None,
+            remote_control_turn_id: None,
             quit_shortcut_expires_at: None,
             quit_shortcut_key: None,
             turn_runtime_metrics: RuntimeMetricsSummary::default(),

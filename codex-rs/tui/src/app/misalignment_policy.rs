@@ -165,6 +165,7 @@ impl App {
                     ServerNotification::TurnStarted(
                         codex_app_server_protocol::TurnStartedNotification {
                             thread_id: review.thread_id.to_string(),
+                            input_source: None,
                             turn: response.turn,
                         },
                     ),

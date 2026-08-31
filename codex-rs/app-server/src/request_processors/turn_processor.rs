@@ -3,6 +3,7 @@ use super::*;
 use codex_agent_extension::AgentInvocation;
 use codex_agent_extension::AgentRun;
 use codex_agent_extension::AgentRunner;
+use codex_app_server_protocol::TurnInputSource;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
@@ -16,6 +17,16 @@ use codex_skills::system_cache_root_dir;
 
 use crate::image_url::REMOTE_IMAGE_URL_ERROR;
 use crate::image_url::is_remote_image_url;
+use crate::transport::ConnectionOrigin;
+
+fn turn_input_source(connection_origin: ConnectionOrigin) -> TurnInputSource {
+    match connection_origin {
+        ConnectionOrigin::RemoteControl => TurnInputSource::RemoteControl,
+        ConnectionOrigin::Stdio | ConnectionOrigin::InProcess | ConnectionOrigin::WebSocket => {
+            TurnInputSource::AppServerClient
+        }
+    }
+}
 
 pub(super) fn validate_user_input_image_urls(
     input: &[V2UserInput],
@@ -170,6 +181,7 @@ impl TurnRequestProcessor {
         params: TurnStartParams,
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
+        connection_origin: ConnectionOrigin,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         validate_user_input_image_urls(&params.input)?;
         self.turn_start_inner(
@@ -177,6 +189,7 @@ impl TurnRequestProcessor {
             params,
             app_server_client_name,
             app_server_client_version,
+            turn_input_source(connection_origin),
         )
         .await
         .map(|response| Some(response.into()))
@@ -517,6 +530,7 @@ impl TurnRequestProcessor {
         params: TurnStartParams,
         app_server_client_name: Option<String>,
         app_server_client_version: Option<String>,
+        input_source: TurnInputSource,
     ) -> Result<TurnStartResponse, JSONRPCErrorError> {
         let (thread_id, thread) =
             self.load_thread(&params.thread_id)
@@ -635,7 +649,12 @@ impl TurnRequestProcessor {
             )
             .await?;
 
-        let submission = thread
+        let thread_state = self.thread_state_manager.thread_state(thread_id).await;
+        thread_state
+            .lock()
+            .await
+            .set_next_turn_input_source(input_source);
+        let submission_result = thread
             .start_or_steer_turn(
                 TurnInputRequest::new(input)
                     .with_thread_settings(thread_settings)
@@ -650,21 +669,29 @@ impl TurnRequestProcessor {
                     .with_responses_metadata(params.responsesapi_client_metadata)
                     .with_trace(self.request_trace_context(&request_id).await),
             )
-            .await
-            .map_err(|err| {
-                let error = internal_error(format!("failed to submit turn input: {err}"));
-                self.track_error_response(&request_id, &error, /*error_type*/ None);
-                error
-            })?;
+            .await;
+        if submission_result.is_err() {
+            thread_state.lock().await.clear_next_turn_input_source();
+        }
+        let submission = submission_result.map_err(|err| {
+            let error = internal_error(format!("failed to submit turn input: {err}"));
+            self.track_error_response(&request_id, &error, /*error_type*/ None);
+            error
+        })?;
         let (turn_id, started) = match submission {
             TurnInputSubmission::Started { turn_id } => (turn_id, true),
             TurnInputSubmission::Steered { turn_id } => (turn_id, false),
             TurnInputSubmission::NotSubmitted { reason } => {
+                thread_state.lock().await.clear_next_turn_input_source();
                 let error = internal_error(format!("failed to submit turn input: {reason:?}"));
                 self.track_error_response(&request_id, &error, /*error_type*/ None);
                 return Err(error);
             }
         };
+
+        if !started {
+            thread_state.lock().await.clear_next_turn_input_source();
+        }
 
         if turn_has_input && started {
             let config_snapshot = thread.config_snapshot().await;
@@ -1669,4 +1696,27 @@ fn xcode_26_4_mcp_elicitations_auto_deny(
     // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
     client_name == Some("Xcode")
         && client_version.is_some_and(|version| version.starts_with("26.4"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turn_input_source_uses_remote_control_connection_origin() {
+        assert_eq!(
+            turn_input_source(ConnectionOrigin::RemoteControl),
+            TurnInputSource::RemoteControl
+        );
+        for connection_origin in [
+            ConnectionOrigin::Stdio,
+            ConnectionOrigin::InProcess,
+            ConnectionOrigin::WebSocket,
+        ] {
+            assert_eq!(
+                turn_input_source(connection_origin),
+                TurnInputSource::AppServerClient
+            );
+        }
+    }
 }

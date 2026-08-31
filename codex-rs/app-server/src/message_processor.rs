@@ -56,6 +56,7 @@ use crate::skills_watcher::SkillsWatcher;
 use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
+use crate::transport::ConnectionOrigin;
 use crate::transport::RemoteControlHandle;
 use crate::turn_cost_worker::TurnCostWorker;
 use codex_analytics::AnalyticsEventsClient;
@@ -610,6 +611,7 @@ impl MessageProcessor {
     pub(crate) async fn process_request(
         self: &Arc<Self>,
         connection_id: ConnectionId,
+        connection_origin: ConnectionOrigin,
         request: JSONRPCRequest,
         transport: &AppServerTransport,
         session: Arc<ConnectionSessionState>,
@@ -630,7 +632,12 @@ impl MessageProcessor {
             traceparent: trace.traceparent.clone(),
             tracestate: trace.tracestate.clone(),
         });
-        let request_context = RequestContext::new(request_id.clone(), request_span, request_trace);
+        let request_context = RequestContext::new(
+            request_id.clone(),
+            connection_origin,
+            request_span,
+            request_trace,
+        );
         Self::run_request_with_context(
             Arc::clone(&self.outgoing),
             request_context.clone(),
@@ -678,8 +685,12 @@ impl MessageProcessor {
         };
         let request_span =
             crate::app_server_tracing::typed_request_span(&request, connection_id, &session);
-        let request_context =
-            RequestContext::new(request_id.clone(), request_span, /*parent_trace*/ None);
+        let request_context = RequestContext::new(
+            request_id.clone(),
+            ConnectionOrigin::InProcess,
+            request_span,
+            /*parent_trace*/ None,
+        );
         tracing::trace!(
             ?connection_id,
             request_id = ?request_id.request_id,
@@ -1484,6 +1495,7 @@ impl MessageProcessor {
                         params,
                         app_server_client_name.clone(),
                         client_version.clone(),
+                        request_context.connection_origin(),
                     )
                     .await
             }

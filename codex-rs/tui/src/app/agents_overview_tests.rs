@@ -1932,6 +1932,7 @@ async fn resume_picker_round_trip_preserves_each_threads_input() -> Result<()> {
                 ServerNotification::TurnStarted(
                     codex_app_server_protocol::TurnStartedNotification {
                         thread_id: target.thread_id.to_string(),
+                        input_source: None,
                         turn: codex_app_server_protocol::Turn {
                             id: "turn-with-follow-up".to_string(),
                             items_view: codex_app_server_protocol::TurnItemsView::Full,

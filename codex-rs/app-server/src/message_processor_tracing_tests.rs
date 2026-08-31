@@ -7,6 +7,7 @@ use crate::outgoing_message::ConnectionId;
 use crate::outgoing_message::OutgoingMessageSender;
 use crate::plugin_config_reload::PluginStartupConfig;
 use crate::transport::AppServerTransport;
+use crate::transport::ConnectionOrigin;
 use anyhow::Result;
 use app_test_support::create_mock_responses_server_repeating_assistant;
 use app_test_support::write_mock_responses_config_toml;
@@ -180,6 +181,7 @@ impl TracingHarness {
         self.processor
             .process_request(
                 TEST_CONNECTION_ID,
+                ConnectionOrigin::Stdio,
                 request,
                 &AppServerTransport::Stdio,
                 Arc::clone(&self.session),

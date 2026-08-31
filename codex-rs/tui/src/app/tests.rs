@@ -6705,6 +6705,7 @@ fn test_turn(turn_id: &str, status: TurnStatus, items: Vec<ThreadItem>) -> Turn 
 fn turn_started_notification(thread_id: ThreadId, turn_id: &str) -> ServerNotification {
     ServerNotification::TurnStarted(TurnStartedNotification {
         thread_id: thread_id.to_string(),
+        input_source: Some(codex_app_server_protocol::TurnInputSource::AppServerClient),
         turn: Turn {
             started_at: Some(0),
             ..test_turn(turn_id, TurnStatus::InProgress, Vec::new())

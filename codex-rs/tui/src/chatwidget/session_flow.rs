@@ -34,6 +34,7 @@ impl ChatWidget {
             self.clear_thread_usage_state();
         }
         self.turn_lifecycle.reset_thread();
+        self.remote_control_turn_id = None;
         self.clear_safety_buffering();
         self.thread_name = session.thread_name.clone();
         self.current_goal_status_indicator = None;
