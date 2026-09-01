@@ -1,0 +1,79 @@
+name: codex-secretary
+
+services:
+  secretary:
+    build:
+      context: ../..
+      dockerfile: deploy/nas-secretary/Dockerfile
+      args:
+        CODEX_BWRAP_SUPPORT_SETUID: ${CODEX_BWRAP_SUPPORT_SETUID:-0}
+        CODEX_LINUX_SANDBOX_DISABLE_SECCOMP: ${CODEX_LINUX_SANDBOX_DISABLE_SECCOMP:-0}
+        CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-1}
+        CODEX_GID: ${CODEX_GID:-1000}
+        CODEX_TARGET_ARCH: ${CODEX_TARGET_ARCH:?Set CODEX_TARGET_ARCH to amd64 or arm64 in deploy/nas-secretary/.env}
+        CODEX_UID: ${CODEX_UID:-1000}
+    image: codex-secretary:${CODEX_IMAGE_TAG:?Set CODEX_IMAGE_TAG in deploy/nas-secretary/.env}
+    hostname: ${CODEX_HOSTNAME:-secretary-nas}
+    init: true
+    restart: unless-stopped
+    working_dir: /workspace/secretary
+    environment:
+      CODEX_HOME: /home/codex/.codex
+      HOME: /home/codex
+      TERM: xterm-256color
+      TZ: ${TZ:-America/Denver}
+      XDG_CACHE_HOME: /home/codex/.codex/cache
+      XDG_DATA_HOME: /home/codex/.codex/share
+    command:
+      - app-server
+      - --listen
+      - unix://
+      - --remote-control
+    volumes:
+      - type: volume
+        source: codex-home
+        target: /home/codex/.codex
+      - type: bind
+        source: ${SECRETARY_WORKSPACE_PATH:?Set SECRETARY_WORKSPACE_PATH in deploy/nas-secretary/.env}
+        target: /workspace/secretary
+      - type: bind
+        source: ${SECRETARY_DOCUMENTS_PATH:?Set SECRETARY_DOCUMENTS_PATH in deploy/nas-secretary/.env}
+        target: /home/codex/Documents
+    tmpfs:
+      - /tmp:mode=1777
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
+      - SETGID
+      - SETUID
+      - SYS_ADMIN
+      - SYS_CHROOT
+      - SYS_PTRACE
+    security_opt:
+      - "apparmor=${CODEX_APPARMOR_PROFILE:-docker-default}"
+      - "no-new-privileges:${CODEX_NO_NEW_PRIVILEGES:-true}"
+      - "${CODEX_SECCOMP_SECURITY_OPT:-seccomp=./bubblewrap-seccomp.json}"
+    healthcheck:
+      test:
+        - CMD
+        - codex
+        - app-server
+        - daemon
+        - version
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-file: "${CODEX_LOG_MAX_FILES:-5}"
+        max-size: ${CODEX_LOG_MAX_SIZE:-20m}
+    stop_grace_period: 2m
+
+volumes:
+  codex-home:
+    external: true
+    name: ${CODEX_HOME_VOLUME:-codex-secretary-home}

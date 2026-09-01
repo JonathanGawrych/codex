@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_ALLOW_CROSS");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR");
+    println!("cargo:rerun-if-env-changed=CODEX_BWRAP_SUPPORT_SETUID");
     println!("cargo:rerun-if-env-changed=CODEX_SKIP_BWRAP_BUILD");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
@@ -59,6 +60,9 @@ fn try_build_bwrap() -> Result<(), String> {
         .define("_GNU_SOURCE", None)
         // Rename `main` so the Rust wrapper can expose the Cargo-built binary.
         .define("main", Some("bwrap_main"));
+    if env::var("CODEX_BWRAP_SUPPORT_SETUID").as_deref() == Ok("1") {
+        build.define("ENABLE_SUPPORT_SETUID", None);
+    }
     for include_path in libcap.include_paths {
         // Use -idirafter so target sysroot headers win (musl cross builds),
         // while still allowing libcap headers from the host toolchain.

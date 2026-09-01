@@ -1,0 +1,11 @@
+.git
+.codex
+**/.env
+**/.env.*
+**/.DS_Store
+**/__pycache__
+**/auth.json
+**/node_modules
+**/target
+deploy/nas-secretary/artifacts
+*.log
