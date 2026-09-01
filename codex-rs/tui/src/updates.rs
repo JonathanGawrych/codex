@@ -71,6 +71,7 @@ pub fn get_upgrade_version(config: &Config) -> Option<String> {
 // We use the latest version from the cask if installation is via homebrew - homebrew does not immediately pick up the latest release and can lag behind.
 const HOMEBREW_CASK_API_URL: &str = "https://formulae.brew.sh/api/cask/codex.json";
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const SOURCE_RELEASE_REMOTE: &str = "upstream";
 
 #[derive(Deserialize, Debug, Clone)]
 struct ReleaseInfo {
@@ -166,7 +167,7 @@ async fn refresh_source_checkout(checkout_root: &Path, cache_file: &Path) -> any
     let output = Command::new("git")
         .arg("-C")
         .arg(checkout_root)
-        .args(["fetch", "--prune", "--tags", "origin"])
+        .args(["fetch", "--prune", "--tags", SOURCE_RELEASE_REMOTE])
         .output()
         .await?;
     if !output.status.success() {
