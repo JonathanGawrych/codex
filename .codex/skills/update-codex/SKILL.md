@@ -13,8 +13,10 @@ completion signal targets the TUI that requested the update.
    `.codex/skills/update-codex/SKILL.md` and `codex-rs`; stop if it does not.
 2. Read `CODEX_THREAD_ID` with `printenv CODEX_THREAD_ID`. Require a UUID and record its literal
    value for the final command.
-3. Inspect the checkout and preserve every local customization.
-4. Run `git fetch --prune --tags origin`.
+3. Require that the current branch is `main`. Inspect the checkout and preserve every local
+   customization.
+4. Require a Git remote named `upstream` for `https://github.com/openai/codex.git`, then run
+   `git fetch --prune --tags upstream`.
 5. Find the newest exact `rust-vMAJOR.MINOR.PATCH` tag. Ignore tags containing `alpha`, `beta`,
    `rc`, or any other suffix.
 6. Rebase the current branch onto that stable release tag. Resolve every conflict using the newer
@@ -28,10 +30,11 @@ completion signal targets the TUI that requested the update.
    version. If and only if every change is this generated workspace-package version replacement,
    run `git restore --source=HEAD -- codex-rs/Cargo.lock`. If any dependency, checksum, source, or
    other line changed, determine why and preserve every required change.
-10. Require the build to have succeeded, the rebase to be finished, the newest stable release tag
-    to be an ancestor of `HEAD`, and `git status --porcelain --untracked-files=normal` to be empty.
-    Then run `/Users/jonathan/.local/bin/codex source-update-complete <thread-id>`, replacing
-    `<thread-id>` with the literal UUID recorded in step 2.
+10. Require the build to have succeeded, the rebase to be finished, `main` to be checked out, the
+    newest stable release tag to be an ancestor of `HEAD`, and
+    `git status --porcelain --untracked-files=normal` to be empty. Then run
+    `/Users/jonathan/.local/bin/codex source-update-complete <thread-id>`, replacing `<thread-id>`
+    with the literal UUID recorded in step 2.
 
 Do not run the completion command if any required step failed. The command validates the checkout
 and signals only the initiating TUI. The standalone package is installed and the managed app-server
