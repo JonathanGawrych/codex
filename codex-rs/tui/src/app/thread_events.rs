@@ -71,6 +71,7 @@ pub(super) struct ThreadEventStore {
     // Lifecycle identity must survive bounded replay-buffer eviction.
     pub(super) latest_turn_id: Option<String>,
     pub(super) pending_interrupt_turn_id: Option<String>,
+    pub(super) last_terminal_turn_id: Option<String>,
     pub(super) input_state: Option<ThreadInputState>,
     pub(super) capacity: usize,
     pub(super) active: bool,
@@ -115,6 +116,7 @@ impl ThreadEventStore {
             active_reasoning_item: None,
             latest_turn_id: None,
             pending_interrupt_turn_id: None,
+            last_terminal_turn_id: None,
             input_state: None,
             capacity,
             active: false,
@@ -171,15 +173,22 @@ impl ThreadEventStore {
         self.active_turn_id = Some(turn_id);
     }
 
-    pub(super) fn push_notification(&mut self, notification: ServerNotification) {
-        self.push_notification_inner(Cow::Owned(notification));
+    pub(super) fn push_notification(&mut self, notification: ServerNotification) -> bool {
+        self.push_notification_inner(Cow::Owned(notification))
     }
 
-    pub(super) fn push_notification_ref(&mut self, notification: &ServerNotification) {
-        self.push_notification_inner(Cow::Borrowed(notification));
+    pub(super) fn push_notification_ref(&mut self, notification: &ServerNotification) -> bool {
+        self.push_notification_inner(Cow::Borrowed(notification))
     }
 
-    fn push_notification_inner(&mut self, notification: Cow<'_, ServerNotification>) {
+    fn push_notification_inner(&mut self, notification: Cow<'_, ServerNotification>) -> bool {
+        if matches!(
+            notification.as_ref(),
+            ServerNotification::TurnCompleted(turn)
+                if self.last_terminal_turn_id.as_deref() == Some(turn.turn.id.as_str())
+        ) {
+            return false;
+        }
         let user_item = match notification.as_ref() {
             ServerNotification::ItemStarted(n) => Some((&n.turn_id, &n.item)),
             ServerNotification::ItemCompleted(n) => Some((&n.turn_id, &n.item)),
@@ -216,6 +225,7 @@ impl ThreadEventStore {
                 if self.active_turn_id.is_none() {
                     self.latest_turn_id = Some(turn.turn.id.clone());
                 }
+                self.last_terminal_turn_id = Some(turn.turn.id.clone());
                 if matches!(turn.turn.status, TurnStatus::Completed) {
                     self.recap_progress.completed_turns += 1;
                 }
@@ -292,11 +302,12 @@ impl ThreadEventStore {
                 | ServerNotification::ProcessOutputDelta(_)
                 | ServerNotification::ProcessExited(_)
         ) {
-            return;
+            return true;
         }
 
         self.push_replay_notification(notification);
         self.trim_delegated_turns();
+        true
     }
 
     fn trim_delegated_turns(&mut self) {
@@ -830,6 +841,31 @@ mod tests {
             TurnStatus::Interrupted,
         ));
         assert_eq!(store.active_turn_id(), None);
+    }
+
+    #[test]
+    fn thread_event_store_rejects_duplicate_terminal_turn_notifications() {
+        let mut store = ThreadEventStore::new(/*capacity*/ 8);
+        let thread_id = ThreadId::new();
+        store.push_notification(turn_started_notification(thread_id, "turn-1"));
+        store.pending_interrupt_turn_id = Some("turn-1".to_string());
+
+        assert!(store.push_notification(turn_completed_notification(
+            thread_id,
+            "turn-1",
+            TurnStatus::Interrupted,
+        )));
+        let buffered_event_count = store.buffer.len();
+        assert!(!store.push_notification(turn_completed_notification(
+            thread_id,
+            "turn-1",
+            TurnStatus::Completed,
+        )));
+
+        assert_eq!(store.active_turn_id(), None);
+        assert_eq!(store.pending_interrupt_turn_id, None);
+        assert_eq!(store.buffer.len(), buffered_event_count);
+        assert_eq!(store.recap_progress().completed_turns, 0);
     }
 
     #[test]
