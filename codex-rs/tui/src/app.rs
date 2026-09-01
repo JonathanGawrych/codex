@@ -800,6 +800,54 @@ fn active_turn_interrupt_race(error: &TypedRequestError) -> Option<String> {
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ActiveTurnInterruptErrorAction {
+    RetrySameTurn,
+    RetryActualTurn(String),
+    TreatAsInterrupted,
+    Fail,
+}
+
+#[derive(Default)]
+struct ActiveTurnInterruptRetryState {
+    retried_after_transport_error: bool,
+    retried_after_turn_mismatch: bool,
+}
+
+impl ActiveTurnInterruptRetryState {
+    fn action_for_error(
+        &mut self,
+        error: &TypedRequestError,
+        requested_turn_id: &str,
+    ) -> ActiveTurnInterruptErrorAction {
+        if matches!(error, TypedRequestError::Transport { .. })
+            && !self.retried_after_transport_error
+        {
+            self.retried_after_transport_error = true;
+            return ActiveTurnInterruptErrorAction::RetrySameTurn;
+        }
+
+        if !self.retried_after_turn_mismatch
+            && let Some(actual_turn_id) = active_turn_interrupt_race(error)
+            && actual_turn_id != requested_turn_id
+        {
+            self.retried_after_turn_mismatch = true;
+            return ActiveTurnInterruptErrorAction::RetryActualTurn(actual_turn_id);
+        }
+
+        if matches!(
+            error,
+            TypedRequestError::Server { method, source }
+                if method == "turn/interrupt"
+                    && source.message == "no active turn to interrupt"
+        ) {
+            return ActiveTurnInterruptErrorAction::TreatAsInterrupted;
+        }
+
+        ActiveTurnInterruptErrorAction::Fail
+    }
+}
+
 impl App {
     pub fn chatwidget_init_for_forked_or_resumed_thread(
         &self,

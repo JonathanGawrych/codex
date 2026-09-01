@@ -7040,6 +7040,45 @@ fn active_turn_interrupt_race_extracts_actual_turn_id_from_mismatch() {
     );
 }
 
+#[test]
+fn active_turn_interrupt_retries_one_transport_failure() {
+    let transport_error = || TypedRequestError::Transport {
+        method: "turn/interrupt".to_string(),
+        source: std::io::Error::new(
+            std::io::ErrorKind::ConnectionAborted,
+            "app server restarting",
+        ),
+    };
+    let mut retry_state = ActiveTurnInterruptRetryState::default();
+
+    assert_eq!(
+        retry_state.action_for_error(&transport_error(), "turn-1"),
+        ActiveTurnInterruptErrorAction::RetrySameTurn
+    );
+    assert_eq!(
+        retry_state.action_for_error(&transport_error(), "turn-1"),
+        ActiveTurnInterruptErrorAction::Fail
+    );
+}
+
+#[test]
+fn active_turn_interrupt_treats_a_stopped_server_turn_as_interrupted() {
+    let error = TypedRequestError::Server {
+        method: "turn/interrupt".to_string(),
+        source: JSONRPCErrorError {
+            code: -32600,
+            message: "no active turn to interrupt".to_string(),
+            data: None,
+        },
+    };
+    let mut retry_state = ActiveTurnInterruptRetryState::default();
+
+    assert_eq!(
+        retry_state.action_for_error(&error, "turn-1"),
+        ActiveTurnInterruptErrorAction::TreatAsInterrupted
+    );
+}
+
 #[tokio::test]
 async fn fresh_session_config_uses_current_service_tier() {
     let mut app = make_test_app().await;

@@ -9,9 +9,51 @@ use super::*;
 use crate::app_event::ThreadTitleDestination;
 use crate::chatwidget::ThreadInputStateRestoreMode;
 use codex_app_server_protocol::ThreadStartedNotification;
+use codex_app_server_protocol::TurnCompletedNotification;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::WarningNotification;
+
+async fn complete_local_interrupt_after_server_turn_stopped(
+    thread_id: ThreadId,
+    turn_id: &str,
+    thread_event_tx: &mpsc::Sender<ThreadBufferedEvent>,
+    thread_event_store: &Arc<Mutex<ThreadEventStore>>,
+) {
+    let notification = ServerNotification::TurnCompleted(TurnCompletedNotification {
+        thread_id: thread_id.to_string(),
+        turn: Turn {
+            id: turn_id.to_string(),
+            items_view: codex_app_server_protocol::TurnItemsView::NotLoaded,
+            items: Vec::new(),
+            status: TurnStatus::Interrupted,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+        },
+    });
+    let should_send = {
+        let mut store = thread_event_store.lock().await;
+        let turn_is_still_active = store.active_turn_id() == Some(turn_id);
+        if !turn_is_still_active {
+            if store.pending_interrupt_turn_id.as_deref() == Some(turn_id) {
+                store.pending_interrupt_turn_id = None;
+            }
+            false
+        } else {
+            let active = store.active;
+            store.push_notification_ref(&notification) && active
+        }
+    };
+    if should_send
+        && let Err(error) = thread_event_tx
+            .send(ThreadBufferedEvent::Notification(Box::new(notification)))
+            .await
+    {
+        tracing::warn!(error = %error, "thread event channel closed");
+    }
+}
 
 impl App {
     pub(super) async fn shutdown_current_thread(&mut self, app_server: &mut AppServerSession) {
@@ -623,9 +665,14 @@ impl App {
                     store.pending_interrupt_turn_id = Some(turn_id.clone());
                 }
                 let request_handle = app_server.request_handle();
-                let request_ids = [app_server.next_request_id(), app_server.next_request_id()];
+                let request_ids = [
+                    app_server.next_request_id(),
+                    app_server.next_request_id(),
+                    app_server.next_request_id(),
+                ];
                 tokio::spawn(async move {
-                    for (attempt, request_id) in request_ids.into_iter().enumerate() {
+                    let mut retry_state = ActiveTurnInterruptRetryState::default();
+                    for request_id in request_ids {
                         let result = request_handle
                             .request_typed::<TurnInterruptResponse>(ClientRequest::TurnInterrupt {
                                 request_id,
@@ -639,14 +686,33 @@ impl App {
                         match result {
                             Ok(_) => break,
                             Err(error) => {
-                                if attempt == 0
-                                    && let Some(actual_turn_id) = active_turn_interrupt_race(&error)
-                                    && actual_turn_id != turn_id
-                                {
-                                    thread_event_store.lock().await.pending_interrupt_turn_id =
-                                        Some(actual_turn_id.clone());
-                                    turn_id = actual_turn_id;
-                                    continue;
+                                match retry_state.action_for_error(&error, turn_id.as_str()) {
+                                    ActiveTurnInterruptErrorAction::RetrySameTurn => {
+                                        tracing::info!(
+                                            error = %error,
+                                            "retrying turn/interrupt after transport failure"
+                                        );
+                                        continue;
+                                    }
+                                    ActiveTurnInterruptErrorAction::RetryActualTurn(
+                                        actual_turn_id,
+                                    ) => {
+                                        thread_event_store.lock().await.pending_interrupt_turn_id =
+                                            Some(actual_turn_id.clone());
+                                        turn_id = actual_turn_id;
+                                        continue;
+                                    }
+                                    ActiveTurnInterruptErrorAction::TreatAsInterrupted => {
+                                        complete_local_interrupt_after_server_turn_stopped(
+                                            thread_id,
+                                            turn_id.as_str(),
+                                            &thread_event_tx,
+                                            &thread_event_store,
+                                        )
+                                        .await;
+                                        break;
+                                    }
+                                    ActiveTurnInterruptErrorAction::Fail => {}
                                 }
                                 tracing::warn!(error = %error, "turn/interrupt failed in TUI");
                                 let notification =
@@ -656,8 +722,12 @@ impl App {
                                     });
                                 let should_send = {
                                     let mut store = thread_event_store.lock().await;
-                                    store.push_notification_ref(&notification);
-                                    store.active
+                                    if store.pending_interrupt_turn_id.as_deref()
+                                        == Some(turn_id.as_str())
+                                    {
+                                        store.pending_interrupt_turn_id = None;
+                                    }
+                                    store.push_notification_ref(&notification) && store.active
                                 };
                                 if should_send
                                     && let Err(error) = thread_event_tx
@@ -1136,8 +1206,9 @@ impl App {
                 _ => false,
             };
             let notification = if guard.active {
-                guard.push_notification_ref(&notification);
-                Some(notification)
+                guard
+                    .push_notification_ref(&notification)
+                    .then_some(notification)
             } else {
                 guard.push_notification(notification);
                 None
@@ -2130,5 +2201,46 @@ mod tests {
             ),
             TurnPermissionsOverride::LegacySandbox(effective_permission_profile)
         );
+    }
+
+    #[tokio::test]
+    async fn missing_server_turn_completes_the_pending_local_interrupt() {
+        let thread_id = ThreadId::new();
+        let mut channel = ThreadEventChannel::new(/*capacity*/ 4);
+        {
+            let mut store = channel.store.lock().await;
+            store.active = true;
+            store.active_turn_id = Some("turn-1".to_string());
+            store.pending_interrupt_turn_id = Some("turn-1".to_string());
+        }
+
+        complete_local_interrupt_after_server_turn_stopped(
+            thread_id,
+            "turn-1",
+            &channel.sender,
+            &channel.store,
+        )
+        .await;
+
+        let event = channel
+            .receiver
+            .as_mut()
+            .expect("thread receiver")
+            .try_recv()
+            .expect("interrupted completion");
+        let ThreadBufferedEvent::Notification(notification) = event else {
+            panic!("expected interrupted completion notification");
+        };
+        let ServerNotification::TurnCompleted(notification) = notification.as_ref() else {
+            panic!("expected turn/completed notification");
+        };
+        assert_eq!(notification.thread_id, thread_id.to_string());
+        assert_eq!(notification.turn.id, "turn-1");
+        assert_eq!(notification.turn.status, TurnStatus::Interrupted);
+
+        let store = channel.store.lock().await;
+        assert_eq!(store.active_turn_id(), None);
+        assert_eq!(store.pending_interrupt_turn_id, None);
+        assert_eq!(store.last_terminal_turn_id.as_deref(), Some("turn-1"));
     }
 }
