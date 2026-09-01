@@ -1,0 +1,18 @@
+approvals_reviewer = "auto_review"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "xhigh"
+mcp_oauth_credentials_store = "file"
+service_tier = "default"
+
+[projects."/workspace/secretary"]
+trust_level = "trusted"
+
+[tui]
+automatic_recaps = false
+status_line_use_colors = true
+terminal_title = ["spinner", "thread-title", "project"]
+
+[tui.status_line_command]
+command = "/opt/codex/bin/codex-statusline"
+timeout_ms = 3000
+refresh_interval_seconds = 60

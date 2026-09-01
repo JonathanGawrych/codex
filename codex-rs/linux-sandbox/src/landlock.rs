@@ -31,6 +31,10 @@ use seccompiler::SeccompRule;
 use seccompiler::TargetArch;
 use seccompiler::apply_filter;
 
+fn network_seccomp_enabled() -> bool {
+    option_env!("CODEX_LINUX_SANDBOX_DISABLE_SECCOMP") != Some("1")
+}
+
 /// Apply sandbox policies inside this thread so only the child inherits
 /// them, not the entire CLI process.
 ///
@@ -65,7 +69,11 @@ pub(crate) fn apply_permission_profile_to_current_thread(
     }
 
     if let Some(mode) = network_seccomp_mode {
-        install_network_seccomp_filter_on_current_thread(mode)?;
+        if network_seccomp_enabled() {
+            install_network_seccomp_filter_on_current_thread(mode)?;
+        } else if allow_network_for_proxy {
+            return Err(managed_proxy_without_seccomp_error());
+        }
     }
 
     if apply_landlock_fs && !file_system_sandbox_policy.has_full_disk_write_access() {
@@ -85,6 +93,12 @@ pub(crate) fn apply_permission_profile_to_current_thread(
     }
 
     Ok(())
+}
+
+fn managed_proxy_without_seccomp_error() -> CodexErr {
+    CodexErr::UnsupportedOperation(
+        "Managed proxy networking requires Linux seccomp support.".to_string(),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,10 +284,21 @@ fn install_network_seccomp_filter_on_current_thread(
 #[cfg(test)]
 mod tests {
     use super::NetworkSeccompMode;
+    use super::managed_proxy_without_seccomp_error;
     use super::network_seccomp_mode;
     use super::should_install_network_seccomp;
     use codex_protocol::protocol::NetworkSandboxPolicy;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn managed_proxy_requires_seccomp() {
+        let error = managed_proxy_without_seccomp_error();
+
+        assert_eq!(
+            error.to_string(),
+            "unsupported operation: Managed proxy networking requires Linux seccomp support."
+        );
+    }
 
     #[test]
     fn managed_network_enforces_seccomp_even_for_full_network_policy() {

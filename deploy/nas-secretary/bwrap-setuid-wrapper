@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+filtered_arguments=()
+command_started=false
+
+for argument in "$@"; do
+    if [[ "$command_started" = false && "$argument" = "--" ]]; then
+        command_started=true
+    fi
+
+    if [[ "$command_started" = false && "$argument" = "--unshare-user" ]]; then
+        continue
+    fi
+
+    filtered_arguments+=("$argument")
+done
+
+exec /opt/codex/codex-resources/bwrap "${filtered_arguments[@]}"
