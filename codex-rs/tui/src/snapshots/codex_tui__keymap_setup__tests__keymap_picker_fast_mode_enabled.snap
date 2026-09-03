@@ -20,14 +20,14 @@ expression: "render_picker(params, 120)"
   Global         Clear Terminal             ctrl-l
   Global       - Toggle Vim Mode            unbound
   Global       - Toggle Fast Mode           unbound
-  Global         Toggle Raw Output          alt-r
+  Global         Toggle Raw Output          ctrl-shift-c
   Global         Toggle Side Conversation   ctrl-/
   Chat           Interrupt Turn             esc
   Chat           Decrease Reasoning Effort  alt-,, shift-down
   Chat           Increase Reasoning Effort  alt-., shift-up
   Chat         - Previous Permission Mode   unbound
   Chat         - Next Permission Mode       unbound
-  Chat           Edit Queued Message        shift-left, alt-up
+  Chat           Edit Queued Message        up, alt-up, shift-left
   Chat           Prompt Stack Back          shift-right, alt-down
   Chat           Skip Question              ctrl-]
   Chat           Toggle Voice               f8
