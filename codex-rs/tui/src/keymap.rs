@@ -1494,7 +1494,10 @@ impl RuntimeKeymap {
                 clear_terminal: default_bindings![ctrl(KeyCode::Char('l'))],
                 toggle_vim_mode: default_bindings![],
                 toggle_fast_mode: default_bindings![],
-                toggle_raw_output: default_bindings![alt(KeyCode::Char('r'))],
+                toggle_raw_output: default_bindings![raw(KeyBinding::new(
+                    KeyCode::Char('c'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT
+                ))],
                 toggle_side_conversation: default_bindings![ctrl(KeyCode::Char('/'))],
             },
             chords: Arc::default(),
@@ -3754,11 +3757,14 @@ mod tests {
     }
 
     #[test]
-    fn raw_output_toggle_defaults_to_alt_r() {
+    fn raw_output_toggle_defaults_to_ctrl_shift_c() {
         let runtime = RuntimeKeymap::defaults();
         assert_eq!(
             runtime.app.toggle_raw_output,
-            vec![key_hint::alt(KeyCode::Char('r'))]
+            vec![KeyBinding::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            )]
         );
     }
 

@@ -237,6 +237,13 @@ async fn legacy_terminal_preserves_default_and_configured_editor_alt_bindings() 
 #[tokio::test]
 async fn legacy_terminal_preserves_active_global_alt_shortcuts() -> Result<()> {
     let (mut app, mut tui, mut app_server) = chord_app().await?;
+    let mut config = TuiKeymap::default();
+    config.global.toggle_raw_output =
+        Some(KeybindingsSpec::One(KeybindingSpec("alt-r".to_string())));
+    let runtime =
+        RuntimeKeymap::from_config(&config).map_err(|error| color_eyre::eyre::eyre!(error))?;
+    app.chat_widget.apply_keymap_update(config, &runtime);
+    app.keymap = runtime;
     app.chat_widget.toggle_vim_mode_and_notify();
     app.chat_widget.insert_str("abc");
     press(

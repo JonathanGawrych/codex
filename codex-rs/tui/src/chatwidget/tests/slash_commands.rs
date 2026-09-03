@@ -2559,6 +2559,38 @@ async fn keymap_capture_can_capture_current_copy_shortcut() {
 }
 
 #[tokio::test]
+async fn keymap_capture_can_capture_ctrl_shift_c() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let runtime_keymap = crate::keymap::RuntimeKeymap::defaults();
+    chat.open_keymap_capture(
+        "global".to_string(),
+        "toggle_raw_output".to_string(),
+        crate::app_event::KeymapEditIntent::ReplaceAll,
+        crate::app_event::KeymapCaptureMode::SingleKey,
+        &runtime_keymap,
+    );
+
+    chat.handle_key_event(KeyEvent::new(
+        KeyCode::Char('c'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
+
+    let AppEvent::KeymapCaptured {
+        context,
+        action,
+        key,
+        intent,
+    } = rx.try_recv().expect("captured key event")
+    else {
+        panic!("expected keymap capture event");
+    };
+    assert_eq!(context, "global");
+    assert_eq!(action, "toggle_raw_output");
+    assert_eq!(key, "ctrl-shift-c");
+    assert_eq!(intent, crate::app_event::KeymapEditIntent::ReplaceAll);
+}
+
+#[tokio::test]
 async fn slash_keymap_capture_can_capture_app_shortcuts() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     let runtime_keymap = crate::keymap::RuntimeKeymap::defaults();

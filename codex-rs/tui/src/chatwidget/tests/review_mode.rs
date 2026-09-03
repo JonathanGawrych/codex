@@ -986,6 +986,20 @@ async fn ctrl_c_shutdown_works_with_caps_lock() {
 }
 
 #[tokio::test]
+async fn ctrl_shift_c_is_not_handled_as_ctrl_c() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.bottom_pane.set_task_running(/*running*/ true);
+
+    chat.handle_key_event(KeyEvent::new(
+        KeyCode::Char('c'),
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
+
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
 async fn ctrl_c_interrupts_without_arming_quit_when_double_press_disabled() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.bottom_pane.set_task_running(/*running*/ true);

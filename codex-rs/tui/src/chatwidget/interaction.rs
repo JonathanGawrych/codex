@@ -25,7 +25,7 @@ impl ChatWidget {
                     modifiers,
                     kind: KeyEventKind::Press,
                     ..
-                } if modifiers.contains(KeyModifiers::CONTROL) && c.eq_ignore_ascii_case(&'c')
+                } if modifiers == KeyModifiers::CONTROL && c.eq_ignore_ascii_case(&'c')
             )
             && !key_hint::ctrl(KeyCode::Char('r')).is_press(key_event)
             && !key_hint::ctrl(KeyCode::Char('u')).is_press(key_event)
@@ -66,7 +66,7 @@ impl ChatWidget {
                 modifiers,
                 kind: KeyEventKind::Press,
                 ..
-            } if modifiers.contains(KeyModifiers::CONTROL) && c.eq_ignore_ascii_case(&'c') => {
+            } if modifiers == KeyModifiers::CONTROL && c.eq_ignore_ascii_case(&'c') => {
                 self.on_ctrl_c();
                 return;
             }
