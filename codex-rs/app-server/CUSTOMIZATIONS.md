@@ -13,3 +13,9 @@ across the thread. Item cursors can be reused with or without `turnId`.
 through Remote Control and `appServerClient` for other App Server clients.
 Older servers omit the field. The TUI uses it to suppress desktop notifications
 for Remote Control turns while preserving Remote Control synchronization.
+
+## Current thread metadata in listings
+
+With the state database available, `thread/list` returns each thread once using
+its current metadata and selected rollout, including after a working-directory
+change or revert. The default scan still discovers unindexed legacy rollouts.

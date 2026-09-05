@@ -1488,7 +1488,7 @@ async fn list_threads_state_db_only_skips_jsonl_repair_scan() -> std::io::Result
 }
 
 #[tokio::test]
-async fn list_threads_default_filter_returns_filesystem_scan_results() -> std::io::Result<()> {
+async fn list_threads_default_filter_repairs_stale_legacy_metadata() -> std::io::Result<()> {
     let home = TempDir::new().expect("temp dir");
     let config = test_config(home.path());
 

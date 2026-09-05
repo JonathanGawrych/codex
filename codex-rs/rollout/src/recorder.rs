@@ -523,9 +523,8 @@ impl RolloutRecorder {
             || model_providers.is_some()
             || cwd_filters.is_some()
             || search_term.is_some();
-        // Filesystem-first listing intentionally overfetches so we can repair stale/missing
-        // SQLite rows before returning the scan page for filtered listings or the DB page for
-        // unfiltered listings.
+        // Discover rollouts before querying SQLite so legacy sessions without an index row
+        // remain visible. SQLite owns current metadata and the selected rollout for each thread.
         let fs_page = match sort_direction {
             SortDirection::Asc => {
                 list_threads_from_files_asc(
@@ -575,19 +574,17 @@ impl RolloutRecorder {
             ));
         }
 
-        // For metadata-filtered listings the filesystem page is the page we return. Track those
-        // IDs so the later DB page only triggers full reconciliation for DB-only hits.
+        // Avoid reconciling the same thread again when it also appears in the database page.
         let fs_page_thread_ids = fs_page
             .items
             .iter()
             .filter_map(|item| item.thread_id)
             .collect::<HashSet<_>>();
 
-        // Warm the DB by repairing every filesystem hit before querying SQLite. Source/provider/cwd
-        // filters are already validated from rollout head metadata, so lightweight read-repair is
-        // enough there. Search can depend on full title metadata, so keep full reconciliation.
+        // Legacy filter matches need their indexed metadata refreshed before database pagination.
+        // Paginated threads keep their current settings in SQLite, not the original rollout head.
         for item in &fs_page.items {
-            if search_term.is_some() {
+            if listing_has_metadata_filters && item.history_mode == ThreadHistoryMode::Legacy {
                 state_db::reconcile_rollout(
                     state_db_ctx.as_deref(),
                     item.path.as_path(),
@@ -627,8 +624,15 @@ impl RolloutRecorder {
         )
         .await;
         if let Some(db_page) = db_page {
-            if search_term.is_some() && (!db_page.items.is_empty() || cursor.is_some()) {
+            if listing_has_metadata_filters {
                 for item in &db_page.items {
+                    // A legacy row found only by SQLite may be a stale filter match. Paginated
+                    // metadata is authoritative even when no history file matches the filter.
+                    if item.history_mode == ThreadHistoryMode::Paginated
+                        || fs_page_thread_ids.contains(&item.id)
+                    {
+                        continue;
+                    }
                     state_db::reconcile_rollout(
                         state_db_ctx.as_deref(),
                         item.rollout_path.as_path(),
@@ -639,6 +643,27 @@ impl RolloutRecorder {
                         /*new_thread_memory_mode*/ None,
                     )
                     .await;
+                }
+                // Legacy history uses file timestamps and UUID cursor tie-breakers. Paginated
+                // history uses current SQLite metadata, including changes absent from its file.
+                if search_term.is_none()
+                    && sort_key != ThreadSortKey::RecencyAt
+                    && fs_page
+                        .items
+                        .iter()
+                        .all(|item| item.history_mode == ThreadHistoryMode::Legacy)
+                    && db_page
+                        .items
+                        .iter()
+                        .all(|item| item.history_mode == ThreadHistoryMode::Legacy)
+                {
+                    let page =
+                        page_from_filesystem_scan(fs_page, sort_direction, page_size, sort_key);
+                    return Ok(fill_missing_thread_item_metadata_from_state_db(
+                        state_db_ctx.as_deref(),
+                        page,
+                    )
+                    .await);
                 }
                 if let Some(repaired_db_page) = state_db::list_threads_db(
                     state_db_ctx.as_deref(),
@@ -658,65 +683,20 @@ impl RolloutRecorder {
                 )
                 .await
                 {
-                    return Ok(repaired_db_page.into());
+                    return Ok(crate::recorder_listing::restore_scanned_parent_ids(
+                        repaired_db_page,
+                        &fs_page.items,
+                    ));
                 }
-                return Ok(db_page.into());
+                return Ok(crate::recorder_listing::restore_scanned_parent_ids(
+                    db_page,
+                    &fs_page.items,
+                ));
             }
-            if listing_has_metadata_filters {
-                for item in &db_page.items {
-                    // Rows that also appeared in the filesystem page were just validated from the
-                    // rollout head. Rows only found by SQLite may be stale filter matches, so fully
-                    // reconcile those before returning the filesystem-backed page.
-                    if fs_page_thread_ids.contains(&item.id) {
-                        continue;
-                    }
-                    state_db::reconcile_rollout(
-                        state_db_ctx.as_deref(),
-                        item.rollout_path.as_path(),
-                        default_provider,
-                        /*builder*/ None,
-                        &[],
-                        Some(archived),
-                        /*new_thread_memory_mode*/ None,
-                    )
-                    .await;
-                }
-                if sort_key == ThreadSortKey::RecencyAt {
-                    if let Some(repaired_db_page) = state_db::list_threads_db(
-                        state_db_ctx.as_deref(),
-                        sqlite,
-                        page_size,
-                        cursor,
-                        sort_key,
-                        sort_direction,
-                        allowed_sources,
-                        model_providers,
-                        cwd_filters,
-                        /*relation_filter*/ None,
-                        archived,
-                        /*section*/ None,
-                        /*project_id*/ None,
-                        search_term,
-                    )
-                    .await
-                    {
-                        return Ok(repaired_db_page.into());
-                    }
-                    return Ok(db_page.into());
-                }
-                codex_state::record_fallback(
-                    "list_threads",
-                    "metadata_filter",
-                    /*telemetry_override*/ None,
-                );
-                let page = page_from_filesystem_scan(fs_page, sort_direction, page_size, sort_key);
-                return Ok(fill_missing_thread_item_metadata_from_state_db(
-                    state_db_ctx.as_deref(),
-                    page,
-                )
-                .await);
-            }
-            return Ok(db_page.into());
+            return Ok(crate::recorder_listing::restore_scanned_parent_ids(
+                db_page,
+                &fs_page.items,
+            ));
         }
         if listing_has_metadata_filters {
             let page = page_from_filesystem_scan(fs_page, sort_direction, page_size, sort_key);
@@ -2177,3 +2157,7 @@ fn cwd_matches(session_cwd: &Path, cwd: &Path) -> bool {
 #[cfg(test)]
 #[path = "recorder_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "recorder_listing_tests.rs"]
+mod listing_tests;
