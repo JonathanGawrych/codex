@@ -310,6 +310,51 @@ async fn reconcile_rollout_preserves_existing_paginated_memory_mode() -> anyhow:
     Ok(())
 }
 
+#[tokio::test]
+async fn reconcile_rollout_preserves_metadata_after_legacy_history_is_promoted()
+-> anyhow::Result<()> {
+    let home = TempDir::new()?;
+    let thread_id = ThreadId::new();
+    let rollout_path = write_rollout_with_user_message(
+        home.path(),
+        thread_id,
+        "Original prompt",
+        ThreadHistoryMode::Legacy,
+    )?;
+    let runtime = codex_state::StateRuntime::init(
+        codex_state::SqliteConfig::new_for_testing(home.path().abs()),
+        "test-provider".to_string(),
+    )
+    .await?;
+    let mut current = metadata::extract_metadata_from_rollout(&rollout_path, "test-provider")
+        .await?
+        .metadata;
+    current.history_mode = ThreadHistoryMode::Paginated;
+    current.cwd = home.path().join("current-workspace");
+    current.model_provider = "current-provider".to_string();
+    current.model = Some("current-model".to_string());
+    current.preview = Some("Current preview".to_string());
+    runtime.upsert_thread(&current).await?;
+    let current = runtime
+        .get_thread(thread_id)
+        .await?
+        .expect("persisted metadata");
+    let original = std::fs::read(&rollout_path)?;
+    reconcile_rollout(
+        Some(runtime.as_ref()),
+        &rollout_path,
+        "test-provider",
+        /*builder*/ None,
+        &[],
+        /*archived_only*/ None,
+        /*new_thread_memory_mode*/ None,
+    )
+    .await;
+    assert_eq!(runtime.get_thread(thread_id).await?, Some(current));
+    assert_eq!(std::fs::read(&rollout_path)?, original);
+    Ok(())
+}
+
 fn write_rollout_with_user_message(
     home: &Path,
     thread_id: ThreadId,

@@ -16,6 +16,7 @@ mod ordinal;
 mod persistence_metrics;
 pub(crate) mod policy;
 pub(crate) mod recorder;
+mod recorder_listing;
 mod reverse_jsonl_scanner;
 mod rollout_file_name;
 mod rollout_reference_index;

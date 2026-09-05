@@ -557,13 +557,13 @@ pub async fn reconcile_rollout(
     let memory_mode = outcome.memory_mode.unwrap_or_else(|| "enabled".to_string());
     metadata.cwd = normalize_cwd_for_state_db(&metadata.cwd);
     let existing_metadata = ctx.get_thread(metadata.id).await.ok().flatten();
-    // Filesystem repair may seed a missing row, but it must not change an existing row's
-    // selected rollout path. After `thread/revert`, a scan can find multiple immutable
-    // rollouts for one thread and cannot know which one SQLite selected.
-    if existing_metadata
-        .as_ref()
-        .is_some_and(|existing| existing.rollout_path.as_path() != rollout_path)
-    {
+    // Filesystem repair may seed a missing row, but current paginated metadata is SQLite-owned.
+    // This also covers legacy rollouts promoted to paginated history. After `thread/revert`,
+    // a scan cannot know which of the immutable rollouts SQLite selected.
+    if existing_metadata.as_ref().is_some_and(|existing| {
+        existing.history_mode == ThreadHistoryMode::Paginated
+            || existing.rollout_path.as_path() != rollout_path
+    }) {
         return;
     }
     // Paginated metadata updates are SQLite-only. Use the rollout mode to seed a
