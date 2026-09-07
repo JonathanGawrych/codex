@@ -12,8 +12,8 @@ SERVICE_TIER=$(jq -r '.service_tier // empty' <<< "$input")
 PROFILE=$(jq -r '.profile // empty' <<< "$input")
 PERSONALITY=$(jq -r 'if .personality.id == "none" then empty else .personality.display_name // empty end' <<< "$input")
 PCT=$(jq -r '.context_window.used_percentage // 0' <<< "$input" | cut -d. -f1)
-RATE_5H=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<< "$input" | cut -d. -f1)
-RATE_7D=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<< "$input" | cut -d. -f1)
+RATE_5H=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<< "$input")
+RATE_7D=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<< "$input")
 RESET_5H=$(jq -r '.rate_limits.five_hour.resets_at // empty' <<< "$input" | cut -d. -f1)
 RESET_7D=$(jq -r '.rate_limits.seven_day.resets_at // empty' <<< "$input" | cut -d. -f1)
 NOW=$(date +%s)
@@ -27,17 +27,23 @@ fmt_remaining() {
   else echo "${m}m"; fi
 }
 
-# Calculate usage relative to the sustainable pace for the elapsed part of a window.
-# 100 is on pace, values above 100 are consuming the limit faster than time passes.
+# Above budget, compare usage with elapsed time. Below budget, compare remaining
+# allowance with remaining time. Return a signed deviation from the normal rate:
+# zero is on pace, positive is overspending, negative is spare allowance.
+# Keep fractional usage and seconds until rounding the final percentage.
 calc_pace() {
   local used=$1 reset=$2 window=$3
   local remaining=$((reset - NOW))
-  (( remaining < 0 )) && remaining=0
-  local elapsed=$((window - remaining))
-  if (( elapsed <= 0 )); then echo 0; return; fi
-  local elapsed_pct=$((elapsed * 100 / window))
-  if (( elapsed_pct <= 0 )); then echo 0; return; fi
-  echo $((used * 100 / elapsed_pct))
+  if (( remaining <= 0 )); then return; fi
+  (( remaining > window )) && remaining=$window
+  jq -nr --argjson used "$used" --argjson remaining "$remaining" --argjson window "$window" \
+    '([$used, 0] | max) as $usage |
+     ($window - $remaining) as $elapsed |
+     if $usage * $window > 100 * $elapsed then
+       if $elapsed > 0 then ($usage * $window / $elapsed - 100 | round) else empty end
+     else
+       (100 - (100 - $usage) * $window / $remaining | round)
+     end'
 }
 
 # Context progress bar.
@@ -124,24 +130,33 @@ BAR_COLOR=$(usage_color $(( (PCT - 10) * 5 / 4 )))
 # Rate-limit color takes the worse signal between pace and proximity to 100% used.
 rate_color() {
   local used=$1 pace=$2
-  local pace_val=$(( 50 + (pace - 100) * 5 / 4 ))
-  local used_val=$(( (used - 50) * 5 / 2 ))
-  local val=$pace_val
-  (( used_val > val )) && val=$used_val
+  local used_val val
+  used_val=$(jq -nr --argjson used "$used" '($used - 50) * 5 / 2 | floor')
+  val=$used_val
+  if [[ -n "$pace" ]]; then
+    local pace_val=$(( 50 + pace * 5 / 4 ))
+    (( pace_val > val )) && val=$pace_val
+  fi
   usage_color "$val"
 }
 
-# Pace relative to 100: ▲ is faster, ▼ is slower, and • is on pace.
+# ▲ needs a slower rate, ▼ allows a faster rate, and • is on pace.
+# Display deviation through 99%, then the total rate as a multiplier: 100% is 2.00x.
 fmt_pace() {
-  local delta=$(( $1 - 100 ))
-  if (( delta > 0 )); then echo "▲${delta}%"
-  elif (( delta < 0 )); then echo "▼${delta#-}%"
-  else echo "•0%"; fi
+  if [[ -z "$1" ]]; then echo "--"; return; fi
+  local delta=$1 marker="•"
+  if (( delta > 0 )); then marker="▲"
+  elif (( delta < 0 )); then marker="▼"; fi
+  local percent=${delta#-}
+  if (( percent >= 100 )); then
+    printf '%s%d.%02dx\n' "$marker" "$((1 + percent / 100))" "$((percent % 100))"
+  else
+    printf '%s%d%%\n' "$marker" "$percent"
+  fi
 }
 
 fmt_rate() {
-  local used=$1
-  if (( used >= 100 )); then echo "100%+"; else echo "${used}%"; fi
+  jq -nr --argjson used "$1" 'if $used >= 100 then "100%+" else "\($used | floor)%" end'
 }
 
 rate_segment() {
@@ -151,11 +166,9 @@ rate_segment() {
     return
   fi
 
-  local pace color rate_fmt pace_fmt
+  local pace="" color rate_fmt pace_fmt
   if [[ -n "$reset_at" ]]; then
     pace=$(calc_pace "$used" "$reset_at" "$window_seconds")
-  else
-    pace=0
   fi
   color=$(rate_color "$used" "$pace")
   rate_fmt=$(fmt_rate "$used")
@@ -173,8 +186,8 @@ printf "%b | %s" "$GRAY" "$MODEL"
 if [[ -n "$EFFORT" ]]; then
   printf " %s" "$EFFORT"
 fi
-if [[ "$SERVICE_TIER" == "fast" ]]; then
-  printf " fast"
+if [[ "$SERVICE_TIER" == "fast" || "$SERVICE_TIER" == "priority" ]]; then
+  printf " ⚡"
 fi
 if [[ -n "$PROFILE" ]]; then
   printf " · %s" "$PROFILE"

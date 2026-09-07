@@ -1,0 +1,16 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: output
+---
+over 99 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 39% ▲99% (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over 100 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 40% ▲2.00x (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over 101 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 40% ▲2.01x (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over 225 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 65% ▲3.25x (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over rounds to 99 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 39% ▲99% (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over rounds to 100 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 39% ▲2.00x (4h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under 99 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 60% ▼99% (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under 100 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 60% ▼2.00x (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under 101 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 59% ▼2.01x (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under 225 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 35% ▼3.25x (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under rounds to 99 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 60% ▼99% (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under rounds to 100 percent: external$ ctx: ▓░░░░░░░░░ 11% | 5h: 60% ▼2.00x (1h0m) | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic

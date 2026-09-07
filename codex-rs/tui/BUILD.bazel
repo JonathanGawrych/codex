@@ -17,7 +17,7 @@ codex_rust_crate(
         "src/**/*.rs",
         "src/**/snapshots/**",
         "tests/fixtures/**",
-    ]),
+    ]) + ["//:scripts/codex-statusline.sh"],
     test_shard_counts = {
         "tui-unit-tests": 8,
     },
