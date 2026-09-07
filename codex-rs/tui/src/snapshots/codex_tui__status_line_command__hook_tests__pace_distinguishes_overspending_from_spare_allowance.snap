@@ -1,0 +1,21 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: output
+---
+on pace: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 50% •0% (3d12h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+spare allowance: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 25% ▼50% (3d12h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+allowance shortfall: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 75% ▲50% (3d12h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+early overspending: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 15% ▲2.29x (6d13h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+one hour left: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% ▼10.08x (1h0m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+two minutes left: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% ▼302.40x (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+fractional usage: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% ▼277.20x (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+under one minute: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 99% ▼20.16x (0m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+near reset on pace: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 99% •0% (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+new window: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 0% •0% (7d0h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+usage before elapsed time: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 1% -- (7d0h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+future window: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 0% •0% (7d0h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+exhausted: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 100%+ •0% (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+over limit: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 100%+ ▲1% (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+reset now: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% -- (now) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+reset passed: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% -- (now) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+unknown reset: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% -- | gpt-5.6-sol xhigh ⚡ · Pragmatic

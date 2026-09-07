@@ -1,0 +1,9 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: output
+---
+Some("priority"): external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+Some("fast"): external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+Some("default"): external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh · Pragmatic
+Some("flex"): external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh · Pragmatic
+None: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh · Pragmatic

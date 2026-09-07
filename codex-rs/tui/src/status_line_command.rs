@@ -1,5 +1,9 @@
 //! Configurable command-backed status-line rendering.
 
+#[cfg(all(test, unix))]
+#[path = "status_line_hook_tests.rs"]
+mod hook_tests;
+
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
