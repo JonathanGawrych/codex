@@ -37,6 +37,12 @@ async fn status_line_command_keeps_local_directory_after_remote_workspace_update
         timeout_ms: 3_000,
         refresh_interval_seconds: 60,
     });
+    chat.status_line_reload_credits = Some(crate::status_line_command::StatusLineReloadCredits {
+        available_count: 2,
+        credits: Some(vec![crate::status_line_command::StatusLineReloadCredit {
+            expires_at: Some(1_801_000_000),
+        }]),
+    });
     chat.refresh_status_surfaces();
 
     let line = tokio::time::timeout(Duration::from_secs(/*secs*/ 5), async {
@@ -58,6 +64,7 @@ async fn status_line_command_keeps_local_directory_after_remote_workspace_update
             std::fs::canonicalize(directory).expect("hook directory exists"),
             payload["cwd"].clone(),
             payload["workspace"]["current_dir"].clone(),
+            payload["reloads"].clone(),
         ),
         (
             local_directory
@@ -66,6 +73,7 @@ async fn status_line_command_keeps_local_directory_after_remote_workspace_update
                 .expect("local directory exists"),
             serde_json::json!(remote_directory),
             serde_json::json!(remote_directory),
+            serde_json::json!({"available_count": 2, "credits": [{"expires_at": 1_801_000_000}]}),
         )
     );
 }

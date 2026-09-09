@@ -376,6 +376,8 @@ impl ChatWidget {
                 ) =>
             {
                 self.available_rate_limit_reset_credits = None;
+                self.status_line_reload_credits = None;
+                self.refresh_status_surfaces();
                 self.replace_rate_limit_reset_popup(Self::rate_limit_reset_success_loading_params());
                 true
             }
@@ -387,6 +389,8 @@ impl ChatWidget {
                     }
                     ConsumeAccountRateLimitResetCreditOutcome::NoCredit if credit_id.is_some() => {
                         self.available_rate_limit_reset_credits = None;
+                        self.status_line_reload_credits = None;
+                        self.refresh_status_surfaces();
                         self.replace_rate_limit_reset_popup(Self::reset_refresh_params(
                             "That reset is no longer available. Refresh to see your current resets.",
                         ));
@@ -394,6 +398,8 @@ impl ChatWidget {
                     }
                     ConsumeAccountRateLimitResetCreditOutcome::NoCredit => {
                         self.available_rate_limit_reset_credits = Some(0);
+                        self.status_line_reload_credits = None;
+                        self.refresh_status_surfaces();
                         "No usage limit resets are available."
                     }
                     ConsumeAccountRateLimitResetCreditOutcome::Reset
@@ -524,6 +530,7 @@ impl ChatWidget {
         self.rate_limit_reset_picker_request_id = None;
         self.pending_usage_menu_rate_limit_request_id = None;
         self.available_rate_limit_reset_credits = None;
+        self.status_line_reload_credits = None;
         self.rate_limit_snapshots_by_limit_id.clear();
         self.clear_pending_rate_limit_reset_hint();
         self.bottom_pane.dismiss_view_by_id(USAGE_MENU_VIEW_ID);

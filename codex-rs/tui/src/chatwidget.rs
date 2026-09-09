@@ -607,6 +607,8 @@ pub(crate) struct ChatWidget {
     pending_usage_menu_rate_limit_request_id: Option<u64>,
     pending_rate_limit_reset_hint: Option<PlainHistoryCell>,
     available_rate_limit_reset_credits: Option<i64>,
+    pub(crate) status_line_reload_credits:
+        Option<crate::status_line_command::StatusLineReloadCredits>,
     next_rate_limit_reset_request_id: u64,
     plan_type: Option<PlanType>,
     codex_rate_limit_reached_type: Option<RateLimitReachedType>,

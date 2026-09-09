@@ -374,6 +374,7 @@ impl ChatWidget {
                 five_hour,
                 seven_day,
             },
+            reloads: self.status_line_reload_credits.clone(),
         }
     }
 
