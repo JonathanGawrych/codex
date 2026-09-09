@@ -1,0 +1,13 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: output
+---
+unavailable: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+no credits: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | gpt-5.6-sol xhigh ⚡ · Pragmatic
+count only: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻?, ↻? | gpt-5.6-sol xhigh ⚡ · Pragmatic
+empty details: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻?, ↻? | gpt-5.6-sol xhigh ⚡ · Pragmatic
+partial details: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻2d, ↻?, ↻? | gpt-5.6-sol xhigh ⚡ · Pragmatic
+nonexpiring: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻7d, ↻∞, ↻? | gpt-5.6-sol xhigh ⚡ · Pragmatic
+expired partial details: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻? | gpt-5.6-sol xhigh ⚡ · Pragmatic
+bounded count only: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻?, ↻?, ↻?, ↻?, ↻?, ↻?, +999994 | gpt-5.6-sol xhigh ⚡ · Pragmatic
+bounded details: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: -- | ↻1d, ↻2d, ↻3d, ↻4d, ↻5d, ↻6d, +2 | gpt-5.6-sol xhigh ⚡ · Pragmatic

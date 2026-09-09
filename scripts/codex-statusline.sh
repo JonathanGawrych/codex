@@ -179,9 +179,39 @@ rate_segment() {
   fi
 }
 
+# One marker per available reload. Omitted credit details have unknown expiration;
+# an explicit null expires_at means the reload does not expire. Expired entries
+# disappear between account reads. Bound the display to six markers plus a count.
+reloads_segment() {
+  local markers
+  markers=$(jq -r --argjson now "$NOW" '
+    def remaining:
+      if . == null then "∞"
+      else (. - $now) as $seconds |
+        if $seconds >= 86400 then "\($seconds / 86400 | floor)d"
+        elif $seconds >= 3600 then "\($seconds / 3600 | floor)h"
+        elif $seconds >= 60 then "\($seconds / 60 | floor)m"
+        else "<1m" end
+      end;
+    (.reloads.available_count // 0 | floor | [., 0] | max) as $count |
+    (.reloads.credits // [] | .[:$count]) as $credits |
+    ($count - ($credits | length)) as $unknown |
+    ($credits | map(select(.expires_at == null or .expires_at > $now)) |
+      sort_by(.expires_at // 1e30)) as $active |
+    (($active | length) + $unknown) as $available |
+    ([$active[:6][] | "↻\(.expires_at | remaining)"] +
+      [range(0; ([6 - ($active | length), $unknown] | min | [., 0] | max)) | "↻?"] +
+        (if $available > 6 then ["+\($available - 6)"] else [] end)) | join(", ")
+  ' <<< "$input")
+  if [[ -n "$markers" ]]; then
+    printf "%b | %b%s%b" "$GRAY" "$WHITE" "$markers" "$GRAY"
+  fi
+}
+
 printf "%b%s\$ %bctx: %b%s %s%%%b" "$CYAN" "$DIR_NAME" "$GRAY" "$BAR_COLOR" "$BAR" "$PCT" "$GRAY"
 rate_segment "5h" "$RATE_5H" "$RESET_5H" 18000
 rate_segment "7d" "$RATE_7D" "$RESET_7D" 604800
+reloads_segment
 printf "%b | %s" "$GRAY" "$MODEL"
 if [[ -n "$EFFORT" ]]; then
   printf " %s" "$EFFORT"

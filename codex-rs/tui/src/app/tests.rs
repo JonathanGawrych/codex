@@ -87,6 +87,8 @@ mod startup;
 mod startup_frame_tests;
 #[path = "tests/startup_warnings_tests.rs"]
 mod startup_warnings_tests;
+#[path = "tests/status_line_reload_tests.rs"]
+mod status_line_reload_tests;
 #[path = "tests/stream_animation_tests.rs"]
 mod stream_animation_tests;
 #[path = "tests/thread_usage.rs"]

@@ -9,6 +9,8 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use codex_ansi_escape::ansi_escape_line;
+use codex_app_server_protocol::RateLimitResetCreditStatus;
+use codex_app_server_protocol::RateLimitResetCreditsSummary;
 use codex_config::types::StatusLineCommandConfig;
 use ratatui::text::Line;
 use serde::Serialize;
@@ -29,6 +31,38 @@ pub(crate) struct StatusLineCommandPayload {
     pub(crate) personality: Option<StatusLinePersonality>,
     pub(crate) context_window: StatusLineContextWindow,
     pub(crate) rate_limits: StatusLineRateLimits,
+    pub(crate) reloads: Option<StatusLineReloadCredits>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct StatusLineReloadCredits {
+    pub(crate) available_count: i64,
+    pub(crate) credits: Option<Vec<StatusLineReloadCredit>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct StatusLineReloadCredit {
+    pub(crate) expires_at: Option<i64>,
+}
+
+impl From<&RateLimitResetCreditsSummary> for StatusLineReloadCredits {
+    fn from(summary: &RateLimitResetCreditsSummary) -> Self {
+        let available_count = summary.available_count.max(0);
+        let detail_limit = usize::try_from(available_count).unwrap_or(usize::MAX);
+        Self {
+            available_count,
+            credits: summary.credits.as_ref().map(|credits| {
+                credits
+                    .iter()
+                    .filter(|credit| credit.status == RateLimitResetCreditStatus::Available)
+                    .take(detail_limit)
+                    .map(|credit| StatusLineReloadCredit {
+                        expires_at: credit.expires_at,
+                    })
+                    .collect()
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +210,76 @@ fn status_line_shell_command(command: &str) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn reloads_include_only_available_credit_expirations() {
+        let summary: RateLimitResetCreditsSummary = serde_json::from_value(serde_json::json!({
+            "availableCount": 2,
+            "credits": [
+                {"id":"redeemed", "resetType":"codexRateLimits", "status":"redeemed", "grantedAt":1, "expiresAt":10},
+                {"id":"pending", "resetType":"codexRateLimits", "status":"redeeming", "grantedAt":1, "expiresAt":20},
+                {"id":"expiring", "resetType":"codexRateLimits", "status":"available", "grantedAt":1, "expiresAt":30},
+                {"id":"nonexpiring", "resetType":"codexRateLimits", "status":"available", "grantedAt":1, "expiresAt":null}
+            ]
+        })).unwrap();
+        assert_eq!(
+            StatusLineReloadCredits::from(&summary),
+            StatusLineReloadCredits {
+                available_count: 2,
+                credits: Some(vec![
+                    StatusLineReloadCredit {
+                        expires_at: Some(30)
+                    },
+                    StatusLineReloadCredit { expires_at: None },
+                ]),
+            }
+        );
+    }
+
+    #[test]
+    fn reloads_preserve_partial_details_and_bound_them_by_available_count() {
+        for (available_count, expirations, expected) in [
+            (2, None, None),
+            (2, Some(vec![]), Some(vec![])),
+            (2, Some(vec![30]), Some(vec![30])),
+            (1, Some(vec![30, 40]), Some(vec![30])),
+            (0, Some(vec![30]), Some(vec![])),
+        ] {
+            let summary = RateLimitResetCreditsSummary {
+                available_count,
+                credits: expirations.map(|expirations| {
+                    expirations
+                        .into_iter()
+                        .map(
+                            |expires_at| codex_app_server_protocol::RateLimitResetCredit {
+                                id: expires_at.to_string(),
+                                reset_type:
+                                    codex_app_server_protocol::RateLimitResetType::CodexRateLimits,
+                                status: RateLimitResetCreditStatus::Available,
+                                granted_at: 1,
+                                expires_at: Some(expires_at),
+                                title: None,
+                                description: None,
+                            },
+                        )
+                        .collect()
+                }),
+            };
+            assert_eq!(
+                StatusLineReloadCredits::from(&summary),
+                StatusLineReloadCredits {
+                    available_count,
+                    credits: expected.map(|expirations| expirations
+                        .into_iter()
+                        .map(|expires_at| StatusLineReloadCredit {
+                            expires_at: Some(expires_at)
+                        })
+                        .collect()),
+                }
+            );
+        }
+    }
 
     fn test_config(command: &str) -> StatusLineCommandConfig {
         StatusLineCommandConfig {
@@ -230,6 +334,12 @@ mod tests {
                     window_minutes: Some(10_080),
                 }),
             },
+            reloads: Some(StatusLineReloadCredits {
+                available_count: 2,
+                credits: Some(vec![StatusLineReloadCredit {
+                    expires_at: Some(1_801_000_000),
+                }]),
+            }),
         };
 
         let json = serde_json::to_string_pretty(&payload).expect("payload should serialize");
@@ -276,6 +386,14 @@ mod tests {
               "resets_at": 1800500000,
               "window_minutes": 10080
             }
+          },
+          "reloads": {
+            "available_count": 2,
+            "credits": [
+              {
+                "expires_at": 1801000000
+              }
+            ]
           }
         }
         "#);
