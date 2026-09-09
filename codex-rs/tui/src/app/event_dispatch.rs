@@ -1183,6 +1183,20 @@ impl App {
                     let rate_limit_reset_credits = response.rate_limit_reset_credits.clone();
                     let snapshots = if accepted
                     {
+                        let mut status_line_reload_credits = rate_limit_reset_credits
+                            .as_ref()
+                            .map(crate::status_line_command::StatusLineReloadCredits::from);
+                        if let (Some(current), Some(updated)) = (
+                            &self.chat_widget.status_line_reload_credits,
+                            &mut status_line_reload_credits,
+                        ) && updated.available_count == current.available_count
+                            && updated.credits.is_none()
+                            && current.credits.is_some()
+                        {
+                            updated.credits = current.credits.clone();
+                        }
+                        self.chat_widget.status_line_reload_credits = status_line_reload_credits;
+                        self.chat_widget.refresh_status_surfaces();
                         self.chat_widget.update_backend_banner(&response);
                         self.apply_backend_banner_fallback(app_server).await;
                         app_server_rate_limit_snapshots(response)

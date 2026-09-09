@@ -129,3 +129,79 @@ async fn five_hour_pace_preserves_status_line_styles() {
     let line = render_hook(payload).await;
     insta::assert_debug_snapshot!(line);
 }
+
+#[tokio::test]
+async fn reloads_show_each_expiration_in_order() {
+    let mut output = String::new();
+    for (label, seconds) in [
+        ("repeated days", vec![604_800, 172_800, 604_900]),
+        (
+            "whole days",
+            vec![24 * 86_400 + 80_000, 26 * 86_400 + 2_000],
+        ),
+        (
+            "short expirations",
+            vec![86_400, 86_399, 3_600, 3_599, 60, 59],
+        ),
+        ("expired entries", vec![-60, 0, 60]),
+    ] {
+        let mut payload = payload();
+        payload["reloads"] = json!({
+            "available_count": seconds.len(),
+            "credits": seconds.into_iter().map(|seconds| json!({"expires_at": NOW + seconds})).collect::<Vec<_>>(),
+        });
+        let line = render_hook(payload).await;
+        output.push_str(&format!("{label}: {line}\n"));
+    }
+    insta::assert_snapshot!(output);
+}
+
+#[tokio::test]
+async fn reloads_handle_count_only_partial_and_nonexpiring_credits() {
+    let mut output = String::new();
+    for (label, reloads) in [
+        ("unavailable", Value::Null),
+        ("no credits", json!({"available_count": 0, "credits": []})),
+        ("count only", json!({"available_count": 2, "credits": null})),
+        (
+            "empty details",
+            json!({"available_count": 2, "credits": []}),
+        ),
+        (
+            "partial details",
+            json!({"available_count": 3, "credits": [{"expires_at": NOW + 172_800}]}),
+        ),
+        (
+            "nonexpiring",
+            json!({"available_count": 3, "credits": [{"expires_at": null}, {"expires_at": NOW + 604_800}]}),
+        ),
+        (
+            "expired partial details",
+            json!({"available_count": 2, "credits": [{"expires_at": NOW}]}),
+        ),
+        (
+            "bounded count only",
+            json!({"available_count": 1_000_000, "credits": null}),
+        ),
+        (
+            "bounded details",
+            json!({"available_count": 8, "credits": (1..=8).rev().map(|days| json!({"expires_at": NOW + days * 86_400})).collect::<Vec<_>>()}),
+        ),
+    ] {
+        let mut payload = payload();
+        payload["reloads"] = reloads;
+        let line = render_hook(payload).await;
+        output.push_str(&format!("{label}: {line}\n"));
+    }
+    insta::assert_snapshot!(output);
+}
+
+#[tokio::test]
+async fn reloads_preserve_status_line_styles() {
+    let mut payload = payload();
+    payload["reloads"] = json!({
+        "available_count": 3,
+        "credits": [{"expires_at": NOW + 172_800}, {"expires_at": NOW + 604_800}, {"expires_at": NOW + 604_800}],
+    });
+    insta::assert_debug_snapshot!(render_hook(payload).await);
+}

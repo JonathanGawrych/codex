@@ -1,0 +1,14 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: render_hook(payload).await
+---
+Line::from_iter([
+    Span::from("external$ ").cyan(),
+    Span::from("ctx: ").fg(Color::Rgb(153, 153, 153)),
+    Span::from("▓░░░░░░░░░ 11%").fg(Color::Rgb(47, 134, 255)),
+    Span::from(" | 5h: --").fg(Color::Rgb(153, 153, 153)),
+    Span::from(" | 7d: --").fg(Color::Rgb(153, 153, 153)),
+    Span::from(" | ").fg(Color::Rgb(153, 153, 153)),
+    Span::from("↻2d, ↻7d, ↻7d").gray(),
+    Span::from(" | gpt-5.6-sol xhigh ⚡ · Pragmatic").fg(Color::Rgb(153, 153, 153)),
+])
