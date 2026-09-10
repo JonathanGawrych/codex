@@ -35,6 +35,9 @@ pub(super) struct PendingInputPreview {
 
 #[derive(Debug, Default)]
 pub(super) struct InputQueueState {
+    /// Requests whose server acceptance has not yet been confirmed.
+    pub(super) pending_server_submissions: VecDeque<(String, PendingSteer)>,
+    pub(super) server_queue: Vec<codex_app_server_protocol::QueuedSubmission>,
     /// User inputs queued while a turn is in progress.
     pub(super) queued_user_messages: VecDeque<QueuedUserMessage>,
     /// History records for queued user messages. Slash commands such as `/goal`
@@ -70,6 +73,8 @@ impl InputQueueState {
     }
 
     pub(super) fn clear(&mut self) {
+        self.pending_server_submissions.clear();
+        self.server_queue.clear();
         self.recovered_queue = false;
         self.queued_user_messages.clear();
         self.queued_user_message_history_records.clear();
@@ -83,17 +88,24 @@ impl InputQueueState {
     }
 
     pub(super) fn preview(&self) -> PendingInputPreview {
-        let queued_messages = self
-            .queued_user_messages
+        let mut queued_messages: Vec<String> = self
+            .server_queue
             .iter()
-            .enumerate()
-            .map(|(idx, message)| {
+            .map(|item| super::ChatWidget::user_message_display_from_inputs(&item.input).message)
+            .collect();
+        queued_messages.extend(self.pending_server_submissions.iter().map(|(_, pending)| {
+            let text =
+                user_message_preview_text(&pending.user_message, Some(&pending.history_record));
+            format!("Delivery unconfirmed: {text}")
+        }));
+        queued_messages.extend(self.queued_user_messages.iter().enumerate().map(
+            |(idx, message)| {
                 user_message_preview_text(
                     message,
                     self.queued_user_message_history_records.get(idx),
                 )
-            })
-            .collect();
+            },
+        ));
         let pending_steers = self
             .pending_steers
             .iter()

@@ -1060,6 +1060,16 @@ pub(crate) enum AppEvent {
 
     /// Finish a settings selection after its preceding update events have been applied.
     SettingsSelectionClosed,
+    RefreshThreadQueue {
+        thread_id: ThreadId,
+    },
+    StartThreadQueue {
+        thread_id: ThreadId,
+    },
+    RecallThreadQueue {
+        thread_id: ThreadId,
+        queued_submission_id: String,
+    },
     /// Run after any nested settings events emitted while handling the close event.
     SettingsSelectionSettled,
 

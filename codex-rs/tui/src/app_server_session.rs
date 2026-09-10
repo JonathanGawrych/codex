@@ -129,8 +129,6 @@ use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnInterruptResponse;
 use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
-use codex_app_server_protocol::TurnSteerParams;
-use codex_app_server_protocol::TurnSteerResponse;
 use codex_app_server_protocol::UserInput;
 use codex_config::ConfigLayerSource;
 use codex_otel::TelemetryAuthMode;
@@ -1428,32 +1426,6 @@ impl AppServerSession {
         thread_id: ThreadId,
     ) -> std::result::Result<(), TypedRequestError> {
         self.turn_interrupt(thread_id, String::new()).await
-    }
-
-    pub(crate) async fn turn_steer(
-        &mut self,
-        thread_id: ThreadId,
-        turn_id: String,
-        client_user_message_id: String,
-        items: Vec<UserInput>,
-        prompt_submitted_at: &str,
-    ) -> std::result::Result<TurnSteerResponse, TypedRequestError> {
-        let request_id = self.next_request_id();
-        self.client
-            .request_typed(ClientRequest::TurnSteer {
-                request_id,
-                params: TurnSteerParams {
-                    thread_id: thread_id.to_string(),
-                    client_user_message_id: Some(client_user_message_id),
-                    input: items,
-                    responsesapi_client_metadata: None,
-                    additional_context: Some(prompt_timestamp_additional_context(
-                        prompt_submitted_at,
-                    )),
-                    expected_turn_id: turn_id,
-                },
-            })
-            .await
     }
 
     pub(crate) async fn thread_set_name(

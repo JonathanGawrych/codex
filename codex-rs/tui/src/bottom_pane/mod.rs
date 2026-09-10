@@ -580,7 +580,7 @@ impl BottomPane {
     ) {
         self.pending_input_preview.set_edit_binding(binding);
         if let Some(questions) = &mut self.questions {
-            questions.next_hint = binding;
+            questions.next_hint = self.keymap.question_navigation_hint();
         }
         self.request_redraw();
     }

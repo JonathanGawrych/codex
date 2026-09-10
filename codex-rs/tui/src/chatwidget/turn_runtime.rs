@@ -332,6 +332,8 @@ impl ChatWidget {
 
     pub(crate) fn has_queued_follow_up_messages(&self) -> bool {
         self.input_queue.has_queued_follow_up_messages()
+            || !self.input_queue.server_queue.is_empty()
+            || !self.input_queue.pending_server_submissions.is_empty()
     }
 
     pub(super) fn handle_app_server_steer_rejected_error(

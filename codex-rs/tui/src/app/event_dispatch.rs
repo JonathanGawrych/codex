@@ -1466,6 +1466,15 @@ impl App {
                 self.sync_active_thread_personality_setting(app_server, personality)
                     .await;
             }
+            AppEvent::RefreshThreadQueue { thread_id } => {
+                self.refresh_thread_queue(app_server, thread_id).await;
+            }
+            AppEvent::StartThreadQueue { thread_id } => {
+                self.start_thread_queue(app_server, thread_id).await;
+            }
+            AppEvent::RecallThreadQueue { thread_id, queued_submission_id } => {
+                self.recall_thread_queue(app_server, thread_id, queued_submission_id).await;
+            }
             AppEvent::SettingsSelectionClosed => {
                 self.app_event_tx.send(AppEvent::SettingsSelectionSettled);
             }

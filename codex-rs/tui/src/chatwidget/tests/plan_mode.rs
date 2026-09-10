@@ -1013,7 +1013,9 @@ async fn plan_implementation_popup_skips_when_queued_follow_up_follows_proposed_
     );
     chat.bottom_pane
         .set_composer_text("Please continue.".to_string(), Vec::new(), Vec::new());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     assert_eq!(chat.queued_user_message_texts(), vec!["Please continue."]);
     assert_no_submit_op(&mut op_rx);
 
@@ -1058,7 +1060,9 @@ async fn plan_implementation_popup_shows_after_new_plan_follows_queued_follow_up
     );
     chat.bottom_pane
         .set_composer_text("Please revise.".to_string(), Vec::new(), Vec::new());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     assert_eq!(chat.queued_user_message_texts(), vec!["Please revise."]);
     assert_no_submit_op(&mut op_rx);
 
@@ -1325,7 +1329,7 @@ async fn submit_user_message_emits_structured_plugin_mentions_from_bindings() {
 }
 
 #[tokio::test]
-async fn enter_queues_while_plan_turn_is_running_without_plan_stream() {
+async fn enter_delivers_while_plan_turn_is_running_without_plan_stream() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(Some("gpt-5.5")).await;
     chat.thread_id = Some(ThreadId::new());
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
@@ -1334,16 +1338,32 @@ async fn enter_queues_while_plan_turn_is_running_without_plan_stream() {
     chat.set_collaboration_mask(plan_mask);
     chat.on_task_started();
 
-    chat.bottom_pane
-        .set_composer_text("submitted immediately".to_string(), Vec::new(), Vec::new());
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
+    {
+        let text = "follow-up while running";
+        chat.bottom_pane
+            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+            panic!("expected immediate submission to the server queue");
+        };
+        assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new()
+            }]
+        );
+    }
+    assert!(chat.input_queue.queued_user_messages.is_empty());
     assert_eq!(
-        chat.queued_user_message_texts(),
-        vec!["submitted immediately"]
+        chat.input_queue
+            .pending_steers
+            .iter()
+            .map(|pending| pending.user_message.text.as_str())
+            .collect::<Vec<_>>(),
+        ["follow-up while running"]
     );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
+    assert!(chat.turn_lifecycle.agent_turn_running);
 }
 
 #[tokio::test]

@@ -225,7 +225,9 @@ async fn rejected_hidden_shell_paste_preserves_colliding_draft_paste() {
     let model = chat.current_model().to_string();
     handle_turn_started(&mut chat, "turn-1");
     let payload = paste_hidden_shell_payload(&mut chat);
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::from(KeyCode::Tab));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     let draft_payload = format!("draft {}", "y".repeat(1000));
     chat.handle_paste(draft_payload.clone());
     chat.set_model("");
@@ -1741,7 +1743,9 @@ async fn esc_interrupt_submits_queued_message_and_preserves_composer_draft() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.queue_user_message(UserMessage::from("queued follow-up"));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     chat.bottom_pane
         .set_composer_text("current draft".to_string(), Vec::new(), Vec::new());
 
@@ -1853,6 +1857,7 @@ async fn restore_thread_input_state_applies_running_state_policy() {
             ..Default::default()
         }),
         safety_buffering_prompt: Some(UserMessage::from("buffered prompt")),
+        pending_server_submissions: VecDeque::new(),
         pending_steers: VecDeque::from([PendingSteer {
             history_record: pending_history.clone(),
             ..pending_steer("submitted to the interrupted turn")
@@ -1965,10 +1970,14 @@ async fn up_moves_running_turn_follow_up_back_to_composer() {
 
     chat.bottom_pane
         .set_composer_text("first follow-up".to_string(), Vec::new(), Vec::new());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     chat.bottom_pane
         .set_composer_text("second follow-up".to_string(), Vec::new(), Vec::new());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     assert!(op_rx.try_recv().is_err());
     assert!(chat.input_queue.pending_steers.is_empty());

@@ -25,7 +25,9 @@ async fn misalignment_policy_failure_stops_the_thread_and_renders_once() {
         render_bottom_popup(&chat, /*width*/ 80)
             .contains("Giving this request a little extra thought")
     );
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.queue_user_message(UserMessage::from("queued follow-up"));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     chat.bottom_pane
         .set_composer_text("stale draft".to_string(), Vec::new(), Vec::new());
     drain_insert_history(&mut rx);

@@ -67,10 +67,17 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_disconnected_key(&mut self, key: KeyEvent) {
-        if self.external_writer_view {
+        if self.external_writer_view || self.handle_question_key(key) {
             return;
         }
-        if self.handle_question_key(key) {
+        if key.kind == KeyEventKind::Press
+            && self.chat_keymap.edit_queued_message.is_pressed(key)
+            && (!self.input_queue.server_queue.is_empty()
+                || !self.input_queue.pending_server_submissions.is_empty())
+        {
+            self.add_warning_message(
+                "Reconnect before dequeuing a server-owned message.".to_string(),
+            );
             return;
         }
         if key.kind == KeyEventKind::Press && self.chat_keymap.edit_queued_message.is_pressed(key) {

@@ -320,13 +320,7 @@ impl App {
                         .into_iter()
                         .chain(self.agents_overview.input_states.get_mut(&thread_id))
                     {
-                        if input
-                            .pending_steers
-                            .front()
-                            .is_some_and(|pending| pending.client_id == *client_id)
-                        {
-                            input.pending_steers.pop_front();
-                        }
+                        input.acknowledge_committed_input(client_id);
                     }
                 }
                 if self.primary_thread_id.is_none() && !self.pending_startup_thread_start {

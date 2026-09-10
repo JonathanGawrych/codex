@@ -23,7 +23,7 @@ impl BottomPane {
                 self.keymap.clone(),
             );
             questions.set_vim_enabled(self.composer.is_vim_enabled());
-            questions.next_hint = self.pending_input_preview.edit_binding;
+            questions.next_hint = self.keymap.question_navigation_hint();
             Box::new(questions)
         })
     }
@@ -54,7 +54,7 @@ impl BottomPane {
             .bold(),
             countdown.dim(),
         ])];
-        if let Some(binding) = self.pending_input_preview.edit_binding {
+        if let Some(binding) = self.keymap.question_navigation_hint() {
             lines.push(Line::from(vec!["    ".into(), binding.into(), " to answer".into()]).dim());
         }
         Some(lines)

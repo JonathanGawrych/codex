@@ -89,16 +89,8 @@ fn next_user_turn_event(
 }
 
 fn submit_prompt(app: &mut App, prompt: &str) {
-    app.chat_widget.submit_user_message_with_mode(
-        prompt.to_string(),
-        CollaborationModeMask {
-            name: "Default".to_string(),
-            mode: None,
-            model: None,
-            reasoning_effort: None,
-            developer_instructions: None,
-        },
-    );
+    app.chat_widget
+        .submit_user_message_as_plain_user_turn(UserMessage::from(prompt));
 }
 
 fn drain_active_thread_events(app: &mut App) {
@@ -259,9 +251,10 @@ stream_max_retries = 0
         unreachable!("user turn");
     };
     let expected_client_id = client_user_message_id.clone();
-    let pending_input = app.chat_widget.capture_thread_input_state();
     app.submit_thread_op(&mut app_server, thread_id, steer)
         .await?;
+    // Once queue/add acknowledges the submission, the server owns its pending input.
+    let pending_input = app.chat_widget.capture_thread_input_state();
     let other_id = ThreadId::from_string(
         &app_test_support::create_fake_rollout(
             app.config.codex_home.as_path(),

@@ -43,6 +43,8 @@ mod rate_limits;
 #[path = "tests/recap_generation_tests.rs"]
 mod recap_generation;
 mod safety_buffering;
+#[path = "tests/server_queue_tests.rs"]
+mod server_queue_tests;
 #[path = "tests/session_lifecycle_requests.rs"]
 mod session_lifecycle_requests;
 mod session_summary;
@@ -118,7 +120,6 @@ use codex_app_server_protocol::NetworkApprovalContext as AppServerNetworkApprova
 use codex_app_server_protocol::NetworkApprovalProtocol as AppServerNetworkApprovalProtocol;
 use codex_app_server_protocol::NetworkPolicyAmendment as AppServerNetworkPolicyAmendment;
 use codex_app_server_protocol::NetworkPolicyRuleAction as AppServerNetworkPolicyRuleAction;
-use codex_app_server_protocol::NonSteerableTurnKind as AppServerNonSteerableTurnKind;
 use codex_app_server_protocol::PatchChangeKind;
 use codex_app_server_protocol::PermissionsRequestApprovalParams;
 use codex_app_server_protocol::RequestId as AppServerRequestId;
@@ -1207,8 +1208,13 @@ async fn replay_thread_snapshot_restores_draft_and_queued_input() {
     );
     app.chat_widget
         .apply_external_edit("outgoing queued input".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     app.chat_widget
         .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget.handle_server_notification(
@@ -1321,8 +1327,13 @@ async fn replayed_turn_complete_submits_restored_queued_follow_up() {
     );
     app.chat_widget
         .apply_external_edit("queued follow-up".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     let input_state = app
         .chat_widget
         .capture_thread_input_state()
@@ -1373,8 +1384,13 @@ async fn replay_only_thread_keeps_restored_queue_visible() {
     );
     app.chat_widget
         .apply_external_edit("queued follow-up".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     let input_state = app
         .chat_widget
         .capture_thread_input_state()
@@ -1424,8 +1440,13 @@ async fn replay_thread_snapshot_keeps_queue_when_running_state_only_comes_from_s
     );
     app.chat_widget
         .apply_external_edit("queued follow-up".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     let input_state = app
         .chat_widget
         .capture_thread_input_state()
@@ -1473,8 +1494,13 @@ async fn replay_thread_snapshot_in_progress_turn_restores_running_queue_state() 
     );
     app.chat_widget
         .apply_external_edit("queued follow-up".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     let input_state = app
         .chat_widget
         .capture_thread_input_state()
@@ -1544,8 +1570,13 @@ async fn replay_thread_snapshot_does_not_submit_queue_before_replay_catches_up()
     );
     app.chat_widget
         .apply_external_edit("queued follow-up".to_string());
+    // Preserve a locally held draft while replay changes the active thread.
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     let input_state = app
         .chat_widget
         .capture_thread_input_state()
@@ -6961,68 +6992,6 @@ fn test_session_telemetry(config: &Config, model: &str) -> SessionTelemetry {
         "test".to_string(),
         crate::test_support::session_source_cli(),
     )
-}
-
-#[test]
-fn active_turn_not_steerable_turn_error_extracts_structured_server_error() {
-    let turn_error = AppServerTurnError {
-        misalignment: None,
-        message: "cannot steer a review turn".to_string(),
-        codex_error_info: Some(AppServerCodexErrorInfo::ActiveTurnNotSteerable {
-            turn_kind: AppServerNonSteerableTurnKind::Review,
-        }),
-        additional_details: None,
-    };
-    let error = TypedRequestError::Server {
-        method: "turn/steer".to_string(),
-        source: JSONRPCErrorError {
-            code: -32602,
-            message: turn_error.message.clone(),
-            data: Some(serde_json::to_value(&turn_error).expect("turn error should serialize")),
-        },
-    };
-
-    assert_eq!(
-        active_turn_not_steerable_turn_error(&error),
-        Some(turn_error)
-    );
-}
-
-#[test]
-fn active_turn_steer_race_detects_missing_active_turn() {
-    let error = TypedRequestError::Server {
-        method: "turn/steer".to_string(),
-        source: JSONRPCErrorError {
-            code: -32602,
-            message: "no active turn to steer".to_string(),
-            data: None,
-        },
-    };
-
-    assert_eq!(
-        active_turn_steer_race(&error),
-        Some(ActiveTurnSteerRace::Missing)
-    );
-    assert_eq!(active_turn_not_steerable_turn_error(&error), None);
-}
-
-#[test]
-fn active_turn_steer_race_extracts_actual_turn_id_from_mismatch() {
-    let error = TypedRequestError::Server {
-        method: "turn/steer".to_string(),
-        source: JSONRPCErrorError {
-            code: -32602,
-            message: "expected active turn id `turn-expected` but found `turn-actual`".to_string(),
-            data: None,
-        },
-    };
-
-    assert_eq!(
-        active_turn_steer_race(&error),
-        Some(ActiveTurnSteerRace::ExpectedTurnMismatch {
-            actual_turn_id: "turn-actual".to_string(),
-        })
-    );
 }
 
 #[test]

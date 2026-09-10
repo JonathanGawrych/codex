@@ -761,78 +761,18 @@ impl App {
                 collaboration_mode,
                 personality,
             } => {
-                let mut should_start_turn = true;
-                if let Some(turn_id) = self.active_turn_id_for_thread(thread_id).await {
-                    let mut steer_turn_id = turn_id;
-                    let mut retried_after_turn_mismatch = false;
-                    loop {
-                        match app_server
-                            .turn_steer(
-                                thread_id,
-                                steer_turn_id.clone(),
-                                client_user_message_id.clone(),
-                                items.to_vec(),
-                                prompt_submitted_at,
-                            )
-                            .await
-                        {
-                            Ok(_) => return Ok(true),
-                            Err(error) => {
-                                if let Some(turn_error) =
-                                    active_turn_not_steerable_turn_error(&error)
-                                {
-                                    if !self.chat_widget.enqueue_rejected_steer() {
-                                        self.chat_widget.add_error_message(turn_error.message);
-                                    }
-                                    return Ok(true);
-                                }
-                                match active_turn_steer_race(&error) {
-                                    Some(ActiveTurnSteerRace::Missing) => {
-                                        if let Some(channel) =
-                                            self.thread_event_channels.get(&thread_id)
-                                        {
-                                            let mut store = channel.store.lock().await;
-                                            store.clear_active_turn_id();
-                                        }
-                                        should_start_turn = true;
-                                        break;
-                                    }
-                                    Some(ActiveTurnSteerRace::ExpectedTurnMismatch {
-                                        actual_turn_id,
-                                    }) if !retried_after_turn_mismatch
-                                        && actual_turn_id != steer_turn_id =>
-                                    {
-                                        // Review flows can swap the active turn before the TUI
-                                        // processes the corresponding notification. Retry once with
-                                        // the server-reported turn id so non-steerable review turns
-                                        // still fall through to the existing queueing behavior.
-                                        if let Some(channel) =
-                                            self.thread_event_channels.get(&thread_id)
-                                        {
-                                            let mut store = channel.store.lock().await;
-                                            store.set_active_turn_id(actual_turn_id.clone());
-                                        }
-                                        steer_turn_id = actual_turn_id;
-                                        retried_after_turn_mismatch = true;
-                                    }
-                                    Some(ActiveTurnSteerRace::ExpectedTurnMismatch {
-                                        actual_turn_id,
-                                    }) => {
-                                        if let Some(channel) =
-                                            self.thread_event_channels.get(&thread_id)
-                                        {
-                                            let mut store = channel.store.lock().await;
-                                            store.set_active_turn_id(actual_turn_id);
-                                        }
-                                        return Err(error.into());
-                                    }
-                                    None => return Err(error.into()),
-                                }
-                            }
-                        }
-                    }
+                if self.active_turn_id_for_thread(thread_id).await.is_some() {
+                    return self
+                        .queue_active_user_input(
+                            app_server,
+                            thread_id,
+                            client_user_message_id.clone(),
+                            items.to_vec(),
+                            prompt_submitted_at.clone(),
+                        )
+                        .await;
                 }
-                if should_start_turn {
+                {
                     let config = self.chat_widget.config_ref();
                     let selected_profile = self.pending_server_profiles.get(&thread_id);
                     let selected_active = selected_profile
@@ -1814,7 +1754,7 @@ impl App {
                 self.chat_widget.handle_thread_session(session);
             }
         }
-        let recovered_input = snapshot
+        let mut recovered_input = snapshot
             .input_state
             .as_ref()
             .is_some_and(|input| input.recovered_queue)
@@ -1826,6 +1766,9 @@ impl App {
                 preserve_in_flight_turn: true,
             },
         );
+        if let Some(input) = recovered_input.as_mut() {
+            self.chat_widget.restore_pending_server_submissions(input);
+        }
         if !snapshot.turns.is_empty() {
             let no_item_timestamps = HashMap::new();
             let item_created_at_ms = self

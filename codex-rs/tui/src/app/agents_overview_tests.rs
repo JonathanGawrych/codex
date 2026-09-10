@@ -1948,6 +1948,8 @@ async fn resume_picker_round_trip_preserves_each_threads_input() -> Result<()> {
                 /*replay_kind*/ None,
             );
             let follow_up = format!("Follow-up for {}", target.thread_id);
+            app.chat_widget
+                .set_queue_autosend_suppressed(/*suppressed*/ true);
             app.chat_widget.apply_external_edit(follow_up.clone());
             app.chat_widget
                 .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));

@@ -7,7 +7,9 @@ async fn rate_limit_recovery_holds_submissions_until_model_change() {
     set_chatgpt_auth(&mut chat);
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "failed-turn");
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.queue_user_message(UserMessage::from("queued follow-up"));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     chat.on_rate_limit_error(RateLimitErrorKind::UsageLimit, "Usage exhausted".into());
     assert!(
         std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(

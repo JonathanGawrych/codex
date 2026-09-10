@@ -37,7 +37,7 @@ impl ChatWidget {
                 .questions
                 .as_ref()
                 .is_some_and(|q| q.handles_key_as_editing(key));
-        let forward = self.chat_keymap.edit_queued_message.is_pressed(key);
+        let forward = self.chat_keymap.advances_question(key);
         let backward = self.chat_keymap.prompt_stack_back.is_pressed(key);
         if key.kind == KeyEventKind::Press && !editing && (forward || backward) {
             if let Some(questions) = self.bottom_pane.questions.as_mut().filter(|q| q.expanded) {
@@ -62,16 +62,10 @@ impl ChatWidget {
                 self.request_redraw();
                 return true;
             }
-            if expanded
-                && forward
-                && !self.blocks_direct_input
-                && let Some(composer) = self.pop_latest_queued_composer_state()
-            {
+            if expanded && forward && !self.blocks_direct_input && self.recall_queued_input() {
                 if let Some(questions) = &mut self.bottom_pane.questions {
                     questions.set_expanded(/*expanded*/ false);
                 }
-                self.restore_composer_state(composer);
-                self.refresh_pending_input_preview();
                 self.request_redraw();
                 return true;
             }
