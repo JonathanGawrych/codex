@@ -286,7 +286,9 @@ async fn pending_mcp_startup_does_not_block_queued_follow_up() {
     notify_mcp_status(&mut chat, "slow", McpServerStartupState::Starting);
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.queue_user_message("queued follow-up".into());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
 

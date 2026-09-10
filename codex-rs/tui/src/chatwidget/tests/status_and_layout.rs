@@ -2081,7 +2081,9 @@ async fn streaming_final_answer_keeps_task_running_state() {
 
     chat.bottom_pane
         .set_composer_text("queued submission".to_string(), Vec::new(), Vec::new());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     assert_eq!(
@@ -2283,7 +2285,9 @@ async fn final_answer_completion_keeps_status_hidden_until_queued_follow_up_star
         Vec::new(),
         Vec::new(),
     );
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
     assert!(op_rx.try_recv().is_err());
@@ -5747,7 +5751,9 @@ async fn chatwidget_tall() {
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
     for i in 0..30 {
+        chat.set_queue_autosend_suppressed(/*suppressed*/ true);
         chat.queue_user_message(format!("Hello, world! {i}").into());
+        chat.set_queue_autosend_suppressed(/*suppressed*/ false);
     }
     let width: u16 = 80;
     let height: u16 = 24;

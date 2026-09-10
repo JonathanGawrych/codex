@@ -34,6 +34,7 @@ use std::sync::Arc;
 
 mod bindings;
 mod chords;
+mod question_navigation;
 mod vim_search;
 pub(crate) use vim_search::VimSearchKeymap;
 

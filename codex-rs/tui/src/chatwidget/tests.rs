@@ -266,6 +266,8 @@ mod rate_limit_recovery_tests;
 #[path = "tests/replay_render_tests.rs"]
 mod replay_render_tests;
 mod review_mode;
+#[path = "tests/server_queue_tests.rs"]
+mod server_queue_tests;
 mod side;
 mod slash_commands;
 mod status_and_layout;

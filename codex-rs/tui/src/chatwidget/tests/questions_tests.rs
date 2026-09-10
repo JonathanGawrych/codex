@@ -319,7 +319,7 @@ fn open_questions(chat: &mut ChatWidget, options: Option<Vec<String>>) {
 }
 
 #[tokio::test]
-async fn question_queue_key_does_not_steer_the_running_turn() {
+async fn question_queue_key_submits_the_answer_for_server_delivery() {
     let (mut chat, _rx, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;
     open_questions(&mut chat, /*options*/ None);
     chat.on_task_started();
@@ -328,10 +328,7 @@ async fn question_queue_key_does_not_steer_the_running_turn() {
     chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
     chat.bottom_pane.handle_paste("  later  ".into());
     chat.handle_key_event(KeyEvent::from(KeyCode::Tab));
-    assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "> First?\n\nlater"
-    );
+    assert_answer(ops.try_recv().unwrap(), "> First?\n\nlater");
     let mut repeat = KeyEvent::from(KeyCode::Tab);
     repeat.kind = KeyEventKind::Repeat;
     chat.handle_key_event(repeat);
@@ -397,10 +394,10 @@ async fn question_queue_pop_becomes_an_ordinary_composer_draft() {
     assert!(chat.bottom_pane.questions.as_ref().unwrap().expanded);
     assert_eq!(chat.bottom_pane.composer_text(), "newer edited");
     chat.handle_key_event(forward);
-    assert_eq!(chat.bottom_pane.composer_text(), "older");
+    assert_eq!(chat.bottom_pane.composer_text(), "older\nnewer edited");
     assert!(chat.input_queue.queued_user_messages.is_empty());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-    assert_answer(ops.try_recv().unwrap(), "older");
+    assert_answer(ops.try_recv().unwrap(), "older\nnewer edited");
     chat.handle_key_event(forward);
     assert!(chat.bottom_pane.questions.as_ref().unwrap().expanded);
     assert!(
@@ -510,9 +507,14 @@ async fn questions_and_queued_messages_share_the_resolved_shortcut() {
         .queued_user_messages
         .push_back(UserMessage::from("queued".to_string()).into());
     chat.refresh_pending_input_preview();
-    for binding in [key_hint::shift(KeyCode::Left), key_hint::alt(KeyCode::Up)] {
-        chat.bottom_pane
-            .set_queued_message_edit_binding(Some(binding.into()));
+    for (binding, configured) in [
+        (key_hint::shift(KeyCode::Left), "shift-left"),
+        (key_hint::alt(KeyCode::Up), "alt-up"),
+    ] {
+        let config =
+            toml::from_str(&format!("[chat]\nedit_queued_message = '{configured}'")).unwrap();
+        let keymap = RuntimeKeymap::from_config(&config).unwrap();
+        chat.apply_keymap_update(config, &keymap);
         let hint = binding.display_label();
         assert!(render_bottom_popup(&chat, /*width*/ 100).contains(&hint));
         chat.add_async_questions(&hint, &questions());

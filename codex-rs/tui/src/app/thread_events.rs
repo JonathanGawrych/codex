@@ -323,10 +323,6 @@ impl ThreadEventStore {
     pub(super) fn active_turn_id(&self) -> Option<&str> {
         self.active_turn_id.as_deref()
     }
-
-    pub(super) fn clear_active_turn_id(&mut self) {
-        self.active_turn_id = None;
-    }
 }
 
 fn turn_id_matches(request_turn_id: &str, candidate_turn_id: &str) -> bool {
@@ -697,17 +693,6 @@ mod tests {
         let mut refreshed_store = ThreadEventStore::new(/*capacity*/ 8);
         refreshed_store.set_session(session, turns);
         assert_eq!(refreshed_store.active_turn_id(), Some("turn-2"));
-    }
-
-    #[test]
-    fn thread_event_store_clear_active_turn_id_resets_cached_turn() {
-        let mut store = ThreadEventStore::new(/*capacity*/ 8);
-        let thread_id = ThreadId::new();
-        store.push_notification(turn_started_notification(thread_id, "turn-1"));
-
-        store.clear_active_turn_id();
-
-        assert_eq!(store.active_turn_id(), None);
     }
 
     #[test]

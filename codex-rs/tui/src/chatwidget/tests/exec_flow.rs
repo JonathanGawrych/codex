@@ -1329,7 +1329,7 @@ async fn bang_shell_enter_while_task_running_queues_user_shell_command() {
 }
 
 #[tokio::test]
-async fn user_message_during_user_shell_command_is_queued_not_steered() {
+async fn user_message_during_user_shell_command_is_sent_to_server_queue() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
@@ -1345,8 +1345,8 @@ async fn user_message_during_user_shell_command_is_queued_not_steered() {
         .set_composer_text("hi".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
-    assert_eq!(chat.queued_user_message_texts(), vec!["hi".to_string()]);
+    assert_matches!(next_submit_op(&mut op_rx), Op::UserTurn { items, .. } if items == vec![UserInput::Text { text: "hi".to_string(), text_elements: Vec::new() }]);
+    assert!(chat.input_queue.queued_user_messages.is_empty());
 
     end_exec(&mut chat, begin, "", "", /*exit_code*/ 0);
     complete_assistant_message(
@@ -1357,16 +1357,7 @@ async fn user_message_during_user_shell_command_is_queued_not_steered() {
     );
     handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
 
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn { items, .. } => assert_eq!(
-            items,
-            vec![UserInput::Text {
-                text: "hi".to_string(),
-                text_elements: Vec::new(),
-            }]
-        ),
-        other => panic!("expected queued user message after shell completion, got {other:?}"),
-    }
+    assert_no_submit_op(&mut op_rx);
     assert!(chat.input_queue.queued_user_messages.is_empty());
 }
 

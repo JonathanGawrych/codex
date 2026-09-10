@@ -379,6 +379,7 @@ async fn restore_thread_input_state_restores_pending_steers_without_downgrading_
             questions: None,
             composer: None,
             safety_buffering_prompt: None,
+            pending_server_submissions: VecDeque::new(),
             pending_steers: VecDeque::from([expected_pending.clone()]),
             rejected_steers_queue,
             rejected_steer_history_records: VecDeque::new(),
@@ -434,7 +435,7 @@ async fn identical_steer_receipts_only_acknowledge_the_matching_submission() {
 }
 
 #[tokio::test]
-async fn steer_enter_queues_while_plan_stream_is_active() {
+async fn enter_delivers_while_plan_stream_is_active() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     chat.set_feature_enabled(Feature::CollaborationModes, /*enabled*/ true);
@@ -445,56 +446,72 @@ async fn steer_enter_queues_while_plan_stream_is_active() {
     chat.on_plan_delta("- Step 1".to_string());
     let _ = drain_insert_history(&mut rx);
 
-    chat.bottom_pane
-        .set_composer_text("queued submission".to_string(), Vec::new(), Vec::new());
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(chat.active_collaboration_mode_kind(), ModeKind::Plan);
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+    {
+        let text = "follow-up while running";
+        chat.bottom_pane
+            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+            panic!("expected immediate submission to the server queue");
+        };
+        assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new()
+            }]
+        );
+    }
+    assert!(chat.input_queue.queued_user_messages.is_empty());
     assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "queued submission"
+        chat.input_queue
+            .pending_steers
+            .iter()
+            .map(|pending| pending.user_message.text.as_str())
+            .collect::<Vec<_>>(),
+        ["follow-up while running"]
     );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
+    assert!(chat.turn_lifecycle.agent_turn_running);
     assert!(drain_insert_history(&mut rx).is_empty());
 }
 
 #[tokio::test]
-async fn enter_queues_while_turn_is_running_without_streaming() {
+async fn enter_delivers_while_turn_is_running_without_streaming() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     chat.on_task_started();
 
-    chat.bottom_pane
-        .set_composer_text("queued while running".to_string(), Vec::new(), Vec::new());
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
-    assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "queued while running"
-    );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
-    assert!(drain_insert_history(&mut rx).is_empty());
-
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
-    );
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn { .. } => {}
-        other => panic!("expected queued Op::UserTurn, got {other:?}"),
+    {
+        let text = "follow-up while running";
+        chat.bottom_pane
+            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+            panic!("expected immediate submission to the server queue");
+        };
+        assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new()
+            }]
+        );
     }
-    complete_user_message(&mut chat, "user-1", "queued while running");
-
-    let inserted = drain_insert_history(&mut rx);
-    assert_eq!(inserted.len(), 1);
-    assert!(lines_to_single_string(&inserted[0]).contains("queued while running"));
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+    assert_eq!(
+        chat.input_queue
+            .pending_steers
+            .iter()
+            .map(|pending| pending.user_message.text.as_str())
+            .collect::<Vec<_>>(),
+        ["follow-up while running"]
+    );
+    assert!(chat.turn_lifecycle.agent_turn_running);
+    assert!(drain_insert_history(&mut rx).is_empty());
 }
 
 #[tokio::test]
-async fn enter_queues_while_final_answer_stream_is_active() {
+async fn enter_delivers_while_final_answer_stream_is_active() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     chat.on_task_started();
@@ -502,37 +519,33 @@ async fn enter_queues_while_final_answer_stream_is_active() {
     // user presses Enter while the final answer is still streaming.
     chat.on_agent_message_delta("Final answer line\n".to_string());
 
-    chat.bottom_pane.set_composer_text(
-        "queued while streaming".to_string(),
-        Vec::new(),
-        Vec::new(),
-    );
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
-    assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "queued while streaming"
-    );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
-    assert!(drain_insert_history(&mut rx).is_empty());
-
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
-    );
-    match next_submit_op(&mut op_rx) {
-        Op::UserTurn { .. } => {}
-        other => panic!("expected queued Op::UserTurn, got {other:?}"),
+    {
+        let text = "follow-up while running";
+        chat.bottom_pane
+            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+            panic!("expected immediate submission to the server queue");
+        };
+        assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new()
+            }]
+        );
     }
-    complete_user_message(&mut chat, "user-1", "queued while streaming");
-
-    let inserted = drain_insert_history(&mut rx);
-    assert!(
-        inserted
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+    assert_eq!(
+        chat.input_queue
+            .pending_steers
             .iter()
-            .any(|cell| lines_to_single_string(cell).contains("queued while streaming"))
+            .map(|pending| pending.user_message.text.as_str())
+            .collect::<Vec<_>>(),
+        ["follow-up while running"]
     );
+    assert!(chat.turn_lifecycle.agent_turn_running);
+    assert!(drain_insert_history(&mut rx).is_empty());
 }
 
 #[tokio::test]
@@ -678,82 +691,38 @@ async fn item_completed_pops_pending_steer_with_local_image_and_text_elements() 
 }
 
 #[tokio::test]
-async fn enter_during_final_stream_queues_follow_up_prompts_in_order() {
+async fn enter_during_final_stream_delivers_follow_up_prompts_in_order() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     chat.on_task_started();
-    // Simulate "dead mode" repro timing by keeping a final-answer stream active while the
-    // user submits multiple follow-up prompts.
     chat.on_agent_message_delta("Final answer line\n".to_string());
 
-    chat.bottom_pane
-        .set_composer_text("first follow-up".to_string(), Vec::new(), Vec::new());
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    chat.bottom_pane
-        .set_composer_text("second follow-up".to_string(), Vec::new(), Vec::new());
-    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 2);
-    assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "first follow-up"
-    );
-    assert_eq!(
-        chat.input_queue.queued_user_messages.back().unwrap().text,
-        "second follow-up"
-    );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
-    assert!(drain_insert_history(&mut rx).is_empty());
-
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
-    );
-    let first_items = match next_submit_op(&mut op_rx) {
-        Op::UserTurn { items, .. } => items,
-        other => panic!("expected Op::UserTurn, got {other:?}"),
-    };
-    assert_eq!(
-        first_items,
-        vec![UserInput::Text {
-            text: "first follow-up".to_string(),
-            text_elements: Vec::new(),
-        }]
-    );
-    complete_user_message(&mut chat, "user-1", "first follow-up");
-
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
-    assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "second follow-up"
-    );
-    let first_insert = drain_insert_history(&mut rx);
-    assert!(
-        first_insert
-            .iter()
-            .any(|cell| lines_to_single_string(cell).contains("first follow-up"))
-    );
-
-    chat.on_task_complete(
-        /*last_agent_message*/ None, /*duration_ms*/ None, /*from_replay*/ false,
-    );
-    let second_items = match next_submit_op(&mut op_rx) {
-        Op::UserTurn { items, .. } => items,
-        other => panic!("expected Op::UserTurn, got {other:?}"),
-    };
-    assert_eq!(
-        second_items,
-        vec![UserInput::Text {
-            text: "second follow-up".to_string(),
-            text_elements: Vec::new(),
-        }]
-    );
-    complete_user_message(&mut chat, "user-2", "second follow-up");
-
+    for text in ["first follow-up", "second follow-up"] {
+        chat.bottom_pane
+            .set_composer_text(text.to_string(), Vec::new(), Vec::new());
+        chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+            panic!("expected immediate submission to the server queue");
+        };
+        assert_eq!(
+            items,
+            vec![UserInput::Text {
+                text: text.to_string(),
+                text_elements: Vec::new()
+            }]
+        );
+    }
     assert!(chat.input_queue.queued_user_messages.is_empty());
-    let second_insert = drain_insert_history(&mut rx);
-    assert_eq!(second_insert.len(), 1);
-    assert!(lines_to_single_string(&second_insert[0]).contains("second follow-up"));
+    assert_eq!(
+        chat.input_queue
+            .pending_steers
+            .iter()
+            .map(|pending| pending.user_message.text.as_str())
+            .collect::<Vec<_>>(),
+        ["first follow-up", "second follow-up"]
+    );
+    assert!(chat.turn_lifecycle.agent_turn_running);
+    assert!(drain_insert_history(&mut rx).is_empty());
 }
 
 #[tokio::test]
@@ -1415,7 +1384,7 @@ async fn review_branch_picker_escape_navigates_back_then_dismisses() {
 }
 
 #[tokio::test]
-async fn enter_queues_follow_up_while_review_is_running() {
+async fn enter_sends_follow_up_to_server_queue_while_review_is_running() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
@@ -1430,13 +1399,18 @@ async fn enter_queues_follow_up_while_review_is_running() {
     );
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
+        panic!("expected submission to the persistent queue");
+    };
     assert_eq!(
-        chat.input_queue.queued_user_messages.front().unwrap().text,
-        "Steer submitted while /review was running."
+        items,
+        vec![UserInput::Text {
+            text: "Steer submitted while /review was running.".to_string(),
+            text_elements: Vec::new(),
+        }]
     );
-    assert!(chat.input_queue.pending_steers.is_empty());
-    assert_no_submit_op(&mut op_rx);
+    assert!(chat.input_queue.queued_user_messages.is_empty());
+    assert_eq!(chat.input_queue.pending_steers.len(), 1);
     assert!(drain_insert_history(&mut rx).is_empty());
 }
 

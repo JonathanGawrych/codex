@@ -128,6 +128,7 @@ impl AsyncQuestions {
     }
     pub(crate) fn set_keymap(&mut self, keymap: &RuntimeKeymap) {
         self.keymap = keymap.clone();
+        self.next_hint = keymap.question_navigation_hint();
         self.composer.set_keymap_bindings(keymap);
     }
 
@@ -176,7 +177,7 @@ impl BottomPaneView for AsyncQuestions {
             }
             return;
         }
-        if self.keymap.chat.edit_queued_message.is_pressed(key) {
+        if self.keymap.chat.advances_question(key) {
             self.navigate(/*forward*/ true);
             return;
         }

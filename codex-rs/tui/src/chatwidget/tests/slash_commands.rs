@@ -1251,7 +1251,9 @@ async fn interrupted_merged_message_history_encodes_mentions_once() {
         }],
     );
 
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     assert!(op_rx.try_recv().is_err());
     assert_eq!(chat.input_queue.queued_user_messages.len(), 1);
@@ -2024,7 +2026,9 @@ async fn slash_copy_picker_defers_queued_input_until_selection_or_cancellation_s
             chat.thread_id = Some(ThreadId::new());
             complete_turn_with_message(&mut chat, "previous", Some("Previous response"));
             handle_turn_started(&mut chat, "active");
+            chat.set_queue_autosend_suppressed(/*suppressed*/ true);
             queue_composer_text_with_tab(&mut chat, queued);
+            chat.set_queue_autosend_suppressed(/*suppressed*/ false);
             chat.dispatch_command(SlashCommand::Copy);
 
             complete_turn_with_message(&mut chat, "active", Some("New response"));
@@ -2852,7 +2856,9 @@ async fn queued_follow_up_suppresses_agent_turn_complete_notification() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     handle_turn_started(&mut chat, "turn-1");
+    chat.set_queue_autosend_suppressed(/*suppressed*/ true);
     chat.queue_user_message("Continue".into());
+    chat.set_queue_autosend_suppressed(/*suppressed*/ false);
 
     complete_turn_with_message(&mut chat, "turn-1", Some("Still working"));
 
