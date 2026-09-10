@@ -1,9 +1,39 @@
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+
 use super::invalid_request;
+use codex_app_server_protocol::AdditionalContextEntry;
+use codex_app_server_protocol::AdditionalContextKind;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_core::CodexThread;
+use codex_protocol::protocol::AdditionalContextEntry as CoreAdditionalContextEntry;
+use codex_protocol::protocol::AdditionalContextKind as CoreAdditionalContextKind;
 use codex_protocol::protocol::MultiAgentVersion;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
+
+pub(super) fn map_additional_context(
+    additional_context: Option<HashMap<String, AdditionalContextEntry>>,
+) -> BTreeMap<String, CoreAdditionalContextEntry> {
+    additional_context
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, entry)| {
+            (
+                key,
+                CoreAdditionalContextEntry {
+                    value: entry.value,
+                    kind: match entry.kind {
+                        AdditionalContextKind::Untrusted => CoreAdditionalContextKind::Untrusted,
+                        AdditionalContextKind::Application => {
+                            CoreAdditionalContextKind::Application
+                        }
+                    },
+                },
+            )
+        })
+        .collect()
+}
 
 pub(super) const DIRECT_INPUT_TO_MULTI_AGENT_V2_SUBAGENT_ERROR: &str =
     "direct app-server input is not allowed for multi-agent v2 sub-agents";

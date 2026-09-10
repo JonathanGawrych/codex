@@ -1,4 +1,5 @@
 use super::thread_input::ensure_direct_input_allowed;
+use super::thread_input::map_additional_context;
 use super::*;
 use codex_agent_extension::AgentInvocation;
 use codex_agent_extension::AgentRun;
@@ -133,7 +134,6 @@ struct ThreadEnvironmentOverride {
     // Only default-environment updates replace the task's separately persisted root selection.
     runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
 }
-
 struct ThreadSettingsBuildParams {
     method: &'static str,
     disabled_plugin_ids: Option<Vec<String>>,
