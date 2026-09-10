@@ -1253,6 +1253,11 @@ impl MessageProcessor {
                 .update(params)
                 .await
                 .map(|response| Some(response.into())),
+            ClientRequest::ThreadQueueTake { params, .. } => self
+                .thread_queue_processor
+                .take(params)
+                .await
+                .map(|response| Some(response.into())),
             ClientRequest::ThreadQueueDelete { params, .. } => self
                 .thread_queue_processor
                 .delete(params)

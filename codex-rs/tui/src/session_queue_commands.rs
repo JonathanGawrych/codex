@@ -115,6 +115,8 @@ pub(super) async fn run_session_queue_action_with_app_server(
                     text_elements: Vec::new(),
                 }],
                 client_user_message_id: client_message_id.to_string(),
+                steer: false,
+                additional_context: None,
             },
         })
         .await

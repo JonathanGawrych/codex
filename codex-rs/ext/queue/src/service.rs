@@ -9,7 +9,6 @@ use codex_core::CodexThread;
 use codex_core::StartIfIdleSubmission;
 use codex_core::ThreadManager;
 use codex_core::TurnInput;
-use codex_core::TurnInputRequest;
 use codex_core::TurnStartOptions;
 use codex_extension_api::ExtensionEventSink;
 use codex_extension_api::ExtensionFuture;
@@ -42,6 +41,9 @@ use uuid::Uuid;
 pub struct QueuedItem {
     pub id: String,
     pub input: TurnInput,
+    pub(crate) steer: bool,
+    pub(crate) additional_context:
+        std::collections::BTreeMap<String, codex_protocol::protocol::AdditionalContextEntry>,
 }
 
 #[derive(Debug, Error)]
@@ -65,7 +67,7 @@ pub enum QueueServiceError {
 #[derive(Clone)]
 pub struct QueuedItemService {
     queue: Arc<dyn QueueStore>,
-    thread_manager: Weak<ThreadManager>,
+    pub(crate) thread_manager: Weak<ThreadManager>,
     event_sink: Arc<dyn ExtensionEventSink>,
     dispatch_locks: Arc<StdMutex<HashMap<ThreadId, Weak<Mutex<()>>>>>,
     resumed_threads: Arc<StdMutex<HashSet<ThreadId>>>,
@@ -196,6 +198,9 @@ impl QueuedItemService {
                     continue;
                 }
                 service.emit_changed(thread_id);
+                if let Err(error) = service.offer_active_input(thread_id).await {
+                    tracing::warn!(%thread_id, %error, "failed to offer queued input to the active turn");
+                }
                 if dispatches
                     .get(&thread_id)
                     .is_some_and(|dispatch| !dispatch.is_finished())
@@ -267,14 +272,57 @@ impl QueuedItemService {
         thread_id: ThreadId,
         input: TurnInput,
     ) -> Result<QueuedItem, QueueServiceError> {
+        self.enqueue_with_context(thread_id, input, std::collections::BTreeMap::new())
+            .await
+    }
+
+    pub async fn enqueue_with_context(
+        &self,
+        thread_id: ThreadId,
+        input: TurnInput,
+        additional_context: std::collections::BTreeMap<
+            String,
+            codex_protocol::protocol::AdditionalContextEntry,
+        >,
+    ) -> Result<QueuedItem, QueueServiceError> {
         let input = prepare_queued_user_input(input).await?;
-        let payload = serde_json::to_string(&input)?;
+        let mut payload = serde_json::to_value(input)?;
+        payload["UserInput"]["additional_context"] = serde_json::to_value(additional_context)?;
+        self.persist_input(thread_id, serde_json::to_string(&payload)?)
+            .await
+    }
+
+    pub async fn enqueue_steer(
+        &self,
+        thread_id: ThreadId,
+        input: TurnInput,
+        additional_context: std::collections::BTreeMap<
+            String,
+            codex_protocol::protocol::AdditionalContextEntry,
+        >,
+    ) -> Result<QueuedItem, QueueServiceError> {
+        let input = prepare_queued_user_input(input).await?;
+        let mut payload = serde_json::to_value(input)?;
+        payload["UserInput"]["queued_steer"] = true.into();
+        payload["UserInput"]["additional_context"] = serde_json::to_value(additional_context)?;
+        self.persist_input(thread_id, serde_json::to_string(&payload)?)
+            .await
+    }
+
+    async fn persist_input(
+        &self,
+        thread_id: ThreadId,
+        payload: String,
+    ) -> Result<QueuedItem, QueueServiceError> {
         let item = {
             let _dispatch_guard = self.dispatch_guard(thread_id).await;
             let item = queued_item_from_record(self.queue.enqueue(thread_id, payload).await?)?;
             self.emit_changed(thread_id);
             item
         };
+        if item.steer {
+            self.offer_active_input(thread_id).await?;
+        }
         self.wake_if_loaded(thread_id).await;
         Ok(item)
     }
@@ -305,21 +353,25 @@ impl QueuedItemService {
         mut input: TurnInput,
     ) -> Result<Option<QueuedItem>, QueueServiceError> {
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
+        let existing = self
+            .list(thread_id)
+            .await?
+            .into_iter()
+            .find(|item| item.id == queued_item_id);
         if let TurnInput::UserInput { client_id, .. } = &mut input {
-            *client_id = self
-                .list(thread_id)
-                .await?
-                .into_iter()
-                .find_map(|item| match item {
-                    QueuedItem {
-                        id,
-                        input: TurnInput::UserInput { client_id, .. },
-                    } if id == queued_item_id => client_id,
-                    _ => None,
-                });
+            *client_id = existing.as_ref().and_then(|item| match &item.input {
+                TurnInput::UserInput { client_id, .. } => client_id.clone(),
+                _ => None,
+            });
         }
         let input = prepare_queued_user_input(input).await?;
-        let payload = serde_json::to_string(&input)?;
+        let mut payload = serde_json::to_value(input)?;
+        if let Some(existing) = existing {
+            payload["UserInput"]["queued_steer"] = existing.steer.into();
+            payload["UserInput"]["additional_context"] =
+                serde_json::to_value(existing.additional_context)?;
+        }
+        let payload = serde_json::to_string(&payload)?;
         let item = self
             .queue
             .update(thread_id, queued_item_id, payload)
@@ -339,6 +391,25 @@ impl QueuedItemService {
     ) -> Result<bool, QueueServiceError> {
         let _dispatch_guard = self.dispatch_guard(thread_id).await;
         self.delete_locked(thread_id, queued_item_id).await
+    }
+
+    /// Remove and return the exact stored payload under the dispatch lock.
+    pub async fn take(
+        &self,
+        thread_id: ThreadId,
+        queued_item_id: String,
+    ) -> Result<Option<QueuedItem>, QueueServiceError> {
+        let _guard = self.dispatch_guard(thread_id).await;
+        let item = self
+            .list(thread_id)
+            .await?
+            .into_iter()
+            .find(|item| item.id == queued_item_id);
+        if item.is_some() && self.delete_locked(thread_id, queued_item_id).await? {
+            Ok(item)
+        } else {
+            Ok(None)
+        }
     }
 
     async fn delete_locked(
@@ -385,17 +456,18 @@ impl QueuedItemService {
                 ),
             })?;
         let queued_item_id = item.id.clone();
-        let input @ TurnInput::UserInput { .. } = item.input else {
+        let TurnInput::UserInput { .. } = item.input else {
             return Err(QueueServiceError::InvalidInput);
         };
-        let submission = thread
-            .start_turn_if_idle(TurnInputRequest::new(input).with_trace(trace).on_start(
-                TurnStartOptions {
-                    turn_trigger: Some("queue".to_string()),
-                    ..Default::default()
-                },
-            ))
-            .await?;
+        let submission =
+            thread
+                .start_turn_if_idle(item.into_request().with_trace(trace).on_start(
+                    TurnStartOptions {
+                        turn_trigger: Some("queue".to_string()),
+                        ..Default::default()
+                    },
+                ))
+                .await?;
         if matches!(submission, StartIfIdleSubmission::Started { .. }) {
             self.delete_locked(thread_id, queued_item_id).await?;
         }
@@ -422,22 +494,22 @@ impl QueuedItemService {
             };
             let queued_item_id = record.id.clone();
 
-            let input = match serde_json::from_str::<TurnInput>(&record.payload) {
-                Ok(input) => input,
+            let item = match queued_item_from_record(record) {
+                Ok(item) => item,
                 Err(error) => {
                     tracing::warn!(%queued_item_id, %error, "discarding invalid queued item");
                     self.delete_locked(thread_id, queued_item_id).await?;
                     continue;
                 }
             };
-            if !matches!(input, TurnInput::UserInput { .. }) {
+            if !matches!(item.input, TurnInput::UserInput { .. }) {
                 tracing::warn!(%queued_item_id, "discarding non-user queued input");
                 self.delete_locked(thread_id, queued_item_id).await?;
                 continue;
             }
 
             match thread
-                .start_turn_if_idle(TurnInputRequest::new(input).on_start(TurnStartOptions {
+                .start_turn_if_idle(item.into_request().on_start(TurnStartOptions {
                     turn_trigger: Some("queue".to_string()),
                     ..Default::default()
                 }))
@@ -569,8 +641,24 @@ where
 fn queued_item_from_record(
     record: QueuedUserSubmissionRecord,
 ) -> Result<QueuedItem, QueueServiceError> {
+    let payload: serde_json::Value = serde_json::from_str(&record.payload)?;
+    let user_input = &payload["UserInput"];
+    let steer = user_input
+        .get("queued_steer")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()?
+        .unwrap_or(false);
+    let additional_context = user_input
+        .get("additional_context")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()?
+        .unwrap_or_default();
     Ok(QueuedItem {
         id: record.id,
-        input: serde_json::from_str::<TurnInput>(&record.payload)?,
+        input: serde_json::from_value(payload)?,
+        steer,
+        additional_context,
     })
 }

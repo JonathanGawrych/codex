@@ -639,6 +639,12 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadQueueUpdateResponse,
     },
+    #[experimental("thread/queue/take")]
+    ThreadQueueTake => "thread/queue/take" {
+        params: v2::ThreadQueueTakeParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadQueueTakeResponse,
+    },
     #[experimental("thread/queue/delete")]
     ThreadQueueDelete => "thread/queue/delete" {
         params: v2::ThreadQueueDeleteParams,

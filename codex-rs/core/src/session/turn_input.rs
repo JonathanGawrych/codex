@@ -602,7 +602,7 @@ impl Session {
     }
 }
 
-async fn merge_additional_context_input(
+pub(crate) async fn merge_additional_context_input(
     session: &Session,
     additional_context: BTreeMap<String, AdditionalContextEntry>,
 ) -> Vec<TurnInput> {
@@ -617,7 +617,7 @@ async fn merge_additional_context_input(
         .collect()
 }
 
-async fn pending_turn_input(session: &Session, input: SubmittedTurnInput) -> TurnInput {
+pub(crate) async fn pending_turn_input(session: &Session, input: SubmittedTurnInput) -> TurnInput {
     match input {
         SubmittedTurnInput::UserInput { content, client_id } => TurnInput::UserInput {
             content,
