@@ -158,8 +158,12 @@ async fn working_deadline_rearms_and_hidden_rows_do_not_spend_exposure() {
     app.chat_widget
         .apply_external_edit("queued follow-up".into());
     app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ true);
+    app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     deliver(&mut app, answer(thread, /*turn*/ 3));
+    app.chat_widget
+        .set_queue_autosend_suppressed(/*suppressed*/ false);
     deliver(
         &mut app,
         notification("turn/completed", thread, /*turn*/ 3, "completed"),

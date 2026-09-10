@@ -285,6 +285,8 @@ mod replay_render_tests;
 mod review_mode;
 #[path = "tests/review_picker_tests.rs"]
 mod review_picker_tests;
+#[path = "tests/server_queue_tests.rs"]
+mod server_queue_tests;
 #[path = "tests/session_model_selection_tests.rs"]
 mod session_model_selection_tests;
 mod side;

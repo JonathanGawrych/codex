@@ -86,6 +86,11 @@ impl ChatWidget {
                 && codex_realtime_webrtc::RealtimeWebrtcSession::is_supported();
         self.bottom_pane
             .set_voice_command_enabled(self.realtime_conversation_available_for_thread);
+        self.input_queue.server_queue.clear();
+        self.input_queue.pending_server_submissions.clear();
+        self.app_event_tx.send(AppEvent::RefreshThreadQueue {
+            thread_id: session.thread_id,
+        });
         self.bottom_pane
             .set_queue_submissions(/*queue_submissions*/ false);
         if previous_thread_id != self.thread_id {

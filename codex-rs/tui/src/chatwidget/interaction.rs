@@ -173,17 +173,9 @@ impl ChatWidget {
 
         if key_event.kind == KeyEventKind::Press
             && self.chat_keymap.edit_queued_message.is_pressed(key_event)
-            && (self.has_queued_follow_up_messages() || self.pending_image_submission.is_some())
             && self.bottom_pane.no_modal_or_popup_active()
+            && self.recall_queued_input()
         {
-            if let Some(composer) = self.pop_latest_queued_composer_state() {
-                self.prepend_composer_state(composer);
-                self.refresh_startup_recovery();
-                self.refresh_pending_input_preview();
-                self.request_redraw();
-            } else {
-                self.cancel_image_submission();
-            }
             return KeyEventAction::None;
         }
 

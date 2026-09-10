@@ -390,6 +390,11 @@ impl ChatWidget {
                     ShellEscapePolicy::Allow,
                     UserMessageSource::Prompt,
                 );
+            } else if !self.input_queue.server_queue.is_empty()
+                && let Some(thread_id) = self.thread_id
+            {
+                self.app_event_tx
+                    .send(AppEvent::StartThreadQueue { thread_id });
             } else if self.has_queued_follow_up_messages() {
                 self.maybe_send_next_queued_input();
             } else if let Some(combined) = self.drain_pending_messages_for_restore() {
@@ -589,7 +594,7 @@ impl ChatWidget {
         self.bottom_pane.set_composer_pending_pastes(pending_pastes);
     }
 
-    fn composer_state_from_user_message(
+    pub(super) fn composer_state_from_user_message(
         user_message: UserMessage,
         pending_pastes: Vec<(String, String)>,
     ) -> ThreadComposerState {
@@ -628,6 +633,7 @@ impl ChatWidget {
                 .as_deref_mut()
                 .map(crate::bottom_pane::AsyncQuestions::capture),
             pending_thread_settings: None,
+            pending_server_submissions: self.input_queue.pending_server_submissions.clone(),
             composer: composer.has_content().then_some(composer),
             safety_buffering_prompt: self.safety_buffering_prompt.clone(),
             safety_buffering_source: self.safety_buffering_source,
@@ -659,7 +665,8 @@ impl ChatWidget {
         let preserve_in_flight_turn = restore_mode.preserve_in_flight_turn;
         let restored_task_running =
             preserve_in_flight_turn && input_state.as_ref().is_some_and(|state| state.task_running);
-        if let Some(input_state) = input_state {
+        if let Some(mut input_state) = input_state {
+            self.restore_pending_server_submissions(&mut input_state);
             self.bottom_pane.restore_questions(input_state.questions);
             self.input_queue.recovered_queue = input_state.recovered_queue;
             self.current_collaboration_mode = input_state.current_collaboration_mode;

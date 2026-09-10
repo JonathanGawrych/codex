@@ -28,7 +28,7 @@ expression: "render_picker(params, 120)"
   Chat         - Previous Permission Mode   unbound
   Chat         - Next Permission Mode       unbound
   Chat           Edit Queued Message        up, alt-up, shift-left
-  Chat           Prompt Stack Back          shift-right, alt-down
+  Chat           Prompt Stack Back          alt-down, shift-right
   Chat           Skip Question              ctrl-]
   Chat           Toggle Voice               f8
   Chat           Toggle Voice Mute          ctrl-x

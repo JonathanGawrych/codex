@@ -203,6 +203,44 @@ impl ChatWidget {
         if self.has_misalignment_policy_violation() {
             return false;
         }
+        if self.is_session_configured()
+            && self.turn_lifecycle.agent_turn_running
+            && !self.input_queue.has_queued_follow_up_messages()
+            && matches!(
+                action,
+                QueuedInputAction::Plain | QueuedInputAction::Literal
+            )
+            && (action == QueuedInputAction::Literal || !user_message.text.starts_with('!'))
+            && !self.input_queue.suppress_queue_autosend
+            && !self.input_queue.rate_limit_recovery_pending
+        {
+            if action == QueuedInputAction::Literal {
+                let mut user_message = user_message;
+                (user_message.text, user_message.text_elements) =
+                    crate::bottom_pane::ChatComposer::expand_pending_pastes(
+                        &user_message.text,
+                        user_message.text_elements,
+                        &pending_pastes,
+                    );
+                return self
+                    .submit_user_message_with_history_and_shell_escape_policy(
+                        user_message,
+                        UserMessageHistoryRecord::UserMessageText,
+                        ShellEscapePolicy::Disallow,
+                        source,
+                    )
+                    .0;
+            } else {
+                return self
+                    .submit_user_message_with_history_and_shell_escape_policy(
+                        user_message,
+                        UserMessageHistoryRecord::UserMessageText,
+                        ShellEscapePolicy::Allow,
+                        source,
+                    )
+                    .0;
+            }
+        }
         let should_run_now = self.is_session_configured()
             && !self.is_user_turn_pending_or_running()
             && !self.input_queue.suppress_queue_autosend
@@ -410,7 +448,7 @@ impl ChatWidget {
     pub(crate) fn is_user_turn_pending_or_running(&self) -> bool {
         self.pending_image_submission.is_some()
             || self.input_queue.user_turn_pending_start
-            || self.turn_lifecycle.agent_turn_running
+            || self.is_agent_turn_running()
             || self.review.is_review_mode
             || (self.bottom_pane.is_task_running() && self.mcp_startup_status.is_none())
     }
@@ -422,6 +460,10 @@ impl ChatWidget {
                 .running_commands
                 .values()
                 .all(|command| command.source == ExecCommandSource::UserShell)
+    }
+
+    pub(crate) fn is_agent_turn_running(&self) -> bool {
+        self.turn_lifecycle.agent_turn_running
     }
 
     /// Rebuild and update the bottom-pane pending-input preview.

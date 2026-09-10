@@ -108,6 +108,8 @@ base_url = "{}/v1"
                 thread_id: started.thread.id.clone(),
                 input: input.clone(),
                 client_user_message_id: "queued-message".into(),
+                additional_context: None,
+                steer: false,
             },
         })
         .await?;

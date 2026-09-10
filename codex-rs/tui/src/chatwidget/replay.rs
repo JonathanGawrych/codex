@@ -312,6 +312,9 @@ impl ChatWidget {
             ThreadItem::UserMessage {
                 content, client_id, ..
             } => {
+                if let Some(client_id) = client_id.as_deref() {
+                    self.acknowledge_server_input(client_id);
+                }
                 if let Some(replies) = crate::async_question_reply::parse_input(&content) {
                     let ids = replies
                         .into_iter()

@@ -130,10 +130,15 @@ async fn ordinary_follow_up_clears_unanswered_questions_after_accepted_input() {
         assert_eq!(question_count(&chat), 0);
         if queued {
             assert_eq!(
-                chat.input_queue.queued_user_messages.front().unwrap().text,
+                chat.input_queue
+                    .pending_steers
+                    .front()
+                    .unwrap()
+                    .user_message
+                    .text,
                 "New prompt"
             );
-            assert!(op_rx.try_recv().is_err());
+            assert_answer(op_rx.try_recv().unwrap(), "New prompt");
         } else {
             assert_answer(op_rx.try_recv().unwrap(), "New prompt");
             insta::assert_snapshot!(
@@ -172,6 +177,7 @@ async fn queued_prompt_clears_questions_arriving_after_enqueue_when_it_starts() 
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
     chat.on_task_started();
+    chat.input_queue.suppress_queue_autosend = true;
     chat.add_async_questions("old", &questions());
     chat.bottom_pane
         .set_composer_text("New prompt".into(), Vec::new(), Vec::new());
@@ -182,6 +188,7 @@ async fn queued_prompt_clears_questions_arriving_after_enqueue_when_it_starts() 
     assert_eq!(question_count(&chat), 2);
     chat.turn_lifecycle.finish();
     chat.update_task_running_state();
+    chat.input_queue.suppress_queue_autosend = false;
     assert!(chat.maybe_send_next_queued_input());
     assert_answer(op_rx.try_recv().unwrap(), "New prompt");
     assert_eq!(question_count(&chat), 0);
@@ -666,7 +673,7 @@ fn open_questions(chat: &mut ChatWidget, options: Option<Vec<String>>) {
 }
 
 #[tokio::test]
-async fn question_queue_key_does_not_steer_the_running_turn() {
+async fn question_queue_key_submits_the_answer_for_server_delivery() {
     let (mut chat, _rx, mut ops) = make_chatwidget_manual(/*model_override*/ None).await;
     open_questions(&mut chat, /*options*/ None);
     chat.on_task_started();
@@ -675,13 +682,7 @@ async fn question_queue_key_does_not_steer_the_running_turn() {
     chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT));
     chat.bottom_pane.handle_paste("  later  ".into());
     chat.handle_key_event(KeyEvent::from(KeyCode::Tab));
-    assert_eq!(
-        crate::async_question_reply::display_text(
-            &chat.input_queue.queued_user_messages.front().unwrap().text
-        )
-        .unwrap(),
-        "> First?\n\nlater"
-    );
+    assert_answer(ops.try_recv().unwrap(), "> First?\n\nlater");
     let mut repeat = KeyEvent::from(KeyCode::Tab);
     repeat.kind = KeyEventKind::Repeat;
     chat.handle_key_event(repeat);
@@ -747,10 +748,10 @@ async fn question_queue_pop_becomes_an_ordinary_composer_draft_and_clears_questi
     assert!(chat.bottom_pane.questions.as_ref().unwrap().expanded);
     assert_eq!(chat.bottom_pane.composer_text(), "newer edited");
     chat.handle_key_event(forward);
-    assert_eq!(chat.bottom_pane.composer_text(), "older");
+    assert_eq!(chat.bottom_pane.composer_text(), "older\nnewer edited");
     assert!(chat.input_queue.queued_user_messages.is_empty());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
-    assert_answer(ops.try_recv().unwrap(), "older");
+    assert_answer(ops.try_recv().unwrap(), "older\nnewer edited");
     chat.handle_key_event(forward);
     assert_eq!(question_count(&chat), 0);
     assert!(!chat.bottom_pane.questions.as_ref().unwrap().expanded);
@@ -865,11 +866,12 @@ async fn questions_and_queued_messages_share_the_resolved_shortcut() {
         .queued_user_messages
         .push_back(UserMessage::from("queued".to_string()).into());
     chat.refresh_pending_input_preview();
-    let forward_hint = key_hint::shift(KeyCode::Left).display_label();
-    let backward_hint = key_hint::shift(KeyCode::Right).display_label();
+    let queue_hint = key_hint::plain(KeyCode::Up).display_label();
+    let forward_hint = key_hint::alt(KeyCode::Up).display_label();
+    let backward_hint = key_hint::alt(KeyCode::Down).display_label();
     assert!(
         render_bottom_popup(&chat, /*width*/ 100)
-            .contains(&format!("{forward_hint} edit last queued message"))
+            .contains(&format!("{queue_hint} edit last queued message"))
     );
     chat.add_async_questions("message", &questions());
     assert!(
@@ -1075,7 +1077,7 @@ async fn retried_question_answers_keep_separate_envelopes_and_order() {
         assert_eq!(original.len(), 4);
         let mut retried = Vec::new();
         if interrupt {
-            chat.input_queue.submit_pending_steers_after_interrupt = true;
+            chat.input_queue.submit_follow_up_after_interrupt = true;
             chat.on_interrupted_turn(TurnAbortReason::Interrupted);
             let Op::UserTurn { items, .. } = ops.try_recv().unwrap() else {
                 panic!("user turn")

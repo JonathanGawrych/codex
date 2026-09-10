@@ -175,7 +175,7 @@ impl BottomPaneView for AsyncQuestions {
             }
             return;
         }
-        if self.keymap.chat.edit_queued_message.is_pressed(key) {
+        if self.keymap.chat.advances_question(key) {
             self.navigate(/*forward*/ true);
             return;
         }

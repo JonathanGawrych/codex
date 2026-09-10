@@ -82,7 +82,7 @@ impl BottomPane {
             .bold(),
             countdown.dim(),
         ])];
-        if let Some(binding) = self.pending_input_preview.edit_binding {
+        if let Some(binding) = self.keymap.question_navigation_hint() {
             let mut hint = Line::from("    ");
             hint.spans.extend(binding.spans());
             hint.spans.push(" to answer".dim());

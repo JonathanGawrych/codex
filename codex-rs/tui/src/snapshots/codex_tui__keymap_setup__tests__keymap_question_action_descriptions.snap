@@ -12,7 +12,7 @@ expression: descriptions
 
   Edit Shortcut
   Prompt Stack Back · Chat
-  Current shift-right, alt-down · Default keymap
+  Current alt-down, shift-right · Default keymap
   Config `tui.keymap.chat.prompt_stack_back`
   Move back through questions toward the composer.
 

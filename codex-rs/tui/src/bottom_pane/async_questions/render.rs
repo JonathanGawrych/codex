@@ -209,7 +209,7 @@ impl AsyncQuestions {
             None
         };
         if let Some(label) = next
-            && let Some(key) = chat_hint("edit_queued_message")
+            && let Some(key) = self.keymap.question_navigation_hint()
         {
             tips.push(crate::footer_hint::shortcut(&key.display_label(), label));
         }

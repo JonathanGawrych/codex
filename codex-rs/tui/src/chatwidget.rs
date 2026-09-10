@@ -403,6 +403,7 @@ use self::transcript::TranscriptState;
 mod turn_lifecycle;
 mod turn_runtime;
 use self::turn_lifecycle::TurnLifecycleState;
+mod server_queue;
 mod usage;
 mod user_messages;
 mod working_directory;
