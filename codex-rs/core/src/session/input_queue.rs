@@ -75,6 +75,7 @@ pub(crate) enum InputQueueActivity {
 #[derive(Default)]
 pub(crate) struct TurnInputQueue {
     items: Vec<TurnInput>,
+    pub(crate) deferred: Vec<Arc<dyn crate::DeferredTurnInput>>,
 }
 
 /// Session-scoped pending input storage and active-turn mailbox delivery coordination.
@@ -90,6 +91,9 @@ struct PendingMailboxCommunication {
 }
 
 impl InputQueue {
+    pub(crate) fn notify_steer(&self) {
+        self.activity_tx.send_replace(InputQueueActivity::Steer);
+    }
     pub(crate) fn new() -> Self {
         let (activity_tx, _) = watch::channel(InputQueueActivity::Mailbox);
         Self {
@@ -208,6 +212,7 @@ impl InputQueue {
         let mut turn_state = active_turn.turn_state.lock().await;
         turn_state.clear_pending_waiters();
         turn_state.pending_input.items.clear();
+        turn_state.pending_input.deferred.clear();
     }
 
     pub(crate) async fn defer_mailbox_delivery_to_next_turn(
@@ -222,12 +227,14 @@ impl InputQueue {
         let mut turn_state = turn_state.lock().await;
         // Explicit same-turn work still needs a follow-up. Queue-only child mail does not: keep
         // it pending so task completion records it for the next turn without sampling again.
-        if turn_state.pending_input.items.iter().any(|input| {
-            !matches!(
-                input,
-                TurnInput::InterAgentCommunication(communication) if !communication.trigger_turn
-            )
-        }) {
+        if !turn_state.pending_input.deferred.is_empty()
+            || turn_state.pending_input.items.iter().any(|input| {
+                !matches!(
+                    input,
+                    TurnInput::InterAgentCommunication(communication) if !communication.trigger_turn
+                )
+            })
+        {
             return;
         }
         turn_state.set_mailbox_delivery_phase(MailboxDeliveryPhase::NextTurn);
@@ -266,7 +273,7 @@ impl InputQueue {
             turn_state.pending_input.items.extend(input);
             turn_state.accept_mailbox_delivery_for_current_turn();
         }
-        self.activity_tx.send_replace(InputQueueActivity::Steer);
+        self.notify_steer();
     }
 
     pub(crate) async fn extend_pending_input_for_turn_state(
@@ -333,7 +340,8 @@ impl InputQueue {
                 Some(active_turn) => {
                     let turn_state = active_turn.turn_state.lock().await;
                     (
-                        !turn_state.pending_input.items.is_empty(),
+                        !turn_state.pending_input.items.is_empty()
+                            || !turn_state.pending_input.deferred.is_empty(),
                         turn_state.accepts_mailbox_delivery_for_current_turn(),
                     )
                 }
@@ -352,12 +360,13 @@ impl InputQueue {
 
 impl TurnInputQueue {
     fn has_pending_input(&self) -> bool {
-        self.items.iter().any(|input| {
-            matches!(
-                input,
-                TurnInput::UserInput { .. } | TurnInput::FunctionCallOutput(_)
-            )
-        })
+        !self.deferred.is_empty()
+            || self.items.iter().any(|input| {
+                matches!(
+                    input,
+                    TurnInput::UserInput { .. } | TurnInput::FunctionCallOutput(_)
+                )
+            })
     }
 }
 

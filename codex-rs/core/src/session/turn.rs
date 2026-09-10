@@ -337,10 +337,13 @@ pub(crate) async fn run_turn(
         // submitted through the UI while the model was running. Though the UI
         // may support this, the model might not.
         let pending_input = if can_drain_pending_input {
-            sess.input_queue
+            let mut pending = sess
+                .input_queue
                 .get_pending_input(&sess.active_turn)
                 .await
-                .0
+                .0;
+            pending.extend(sess.take_deferred_input().await?);
+            pending
         } else {
             Vec::new()
         };

@@ -882,6 +882,12 @@ pub struct ThreadQueueAddParams {
     pub thread_id: String,
     pub input: Vec<UserInput>,
     pub client_user_message_id: String,
+    /// Offer this durable input to the active regular turn at its next model request.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steer: bool,
+    /// Client-provided context recorded with the queued message, including its submission time.
+    #[ts(optional = nullable)]
+    pub additional_context: Option<HashMap<String, super::AdditionalContextEntry>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -942,6 +948,22 @@ pub struct ThreadQueueDeleteParams {
 #[ts(export_to = "v2/")]
 pub struct ThreadQueueDeleteResponse {
     pub deleted: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadQueueTakeParams {
+    pub thread_id: String,
+    pub queued_submission_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ThreadQueueTakeResponse {
+    /// The removed message, or `null` if it was already consumed or removed.
+    pub queued_submission: Option<QueuedSubmission>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

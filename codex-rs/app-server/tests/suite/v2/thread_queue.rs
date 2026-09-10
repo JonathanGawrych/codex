@@ -63,6 +63,9 @@ use wiremock::MockServer;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 10);
 
+#[path = "thread_queue_active_tests.rs"]
+mod active_tests;
+
 #[tokio::test]
 async fn queue_requires_experimental_handshake() -> Result<()> {
     let (mut app, codex_home, _server) = queue_app(Vec::new()).await?;
@@ -274,6 +277,8 @@ async fn queue_list_returns_ordered_pages_and_lightweight_notifications() -> Res
             thread_id: thread_id.clone(),
             input: vec![text(&"x".repeat(64 * 1024))],
             client_user_message_id: "oversized-snapshot".to_string(),
+            steer: false,
+            additional_context: None,
         },
     )
     .await?;
@@ -378,6 +383,8 @@ async fn idle_queue_dispatch_preserves_client_id() -> Result<()> {
         thread_id: thread_id.clone(),
         input: vec![text("durable queued message")],
         client_user_message_id: "stable-queued-client-id".to_string(),
+        steer: false,
+        additional_context: None,
     };
     let queued = queue_item(&mut app, queued_submission.clone()).await?;
     assert_eq!(
@@ -1055,6 +1062,8 @@ fn submission(thread_id: &str, value: &str) -> ThreadQueueAddParams {
         thread_id: thread_id.to_string(),
         input: vec![text(value)],
         client_user_message_id: format!("queued-{value}"),
+        steer: false,
+        additional_context: None,
     }
 }
 

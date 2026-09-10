@@ -16,6 +16,8 @@ use codex_app_server_protocol::ThreadQueueReorderParams;
 use codex_app_server_protocol::ThreadQueueReorderResponse;
 use codex_app_server_protocol::ThreadQueueStartParams;
 use codex_app_server_protocol::ThreadQueueStartResponse;
+use codex_app_server_protocol::ThreadQueueTakeParams;
+use codex_app_server_protocol::ThreadQueueTakeResponse;
 use codex_app_server_protocol::ThreadQueueUpdateParams;
 use codex_app_server_protocol::ThreadQueueUpdateResponse;
 use codex_app_server_protocol::Turn;
@@ -76,14 +78,25 @@ impl ThreadQueueRequestProcessor {
         validate_user_input_image_urls(&params.input)?;
         let (thread_id, loaded_thread, source) = self.require_thread(&params.thread_id).await?;
         ensure_direct_input_allowed(loaded_thread.as_deref(), &source)?;
-        let queued_item = self
-            .service()?
-            .enqueue(
-                thread_id,
-                submission_into_turn_input(params.input, Some(params.client_user_message_id)),
-            )
-            .await
-            .map_err(queue_error)?;
+        let input = submission_into_turn_input(params.input, Some(params.client_user_message_id));
+        let queued_item = if params.steer {
+            self.service()?
+                .enqueue_steer(
+                    thread_id,
+                    input,
+                    super::thread_input::map_additional_context(params.additional_context),
+                )
+                .await
+        } else {
+            self.service()?
+                .enqueue_with_context(
+                    thread_id,
+                    input,
+                    super::thread_input::map_additional_context(params.additional_context),
+                )
+                .await
+        }
+        .map_err(queue_error)?;
         Ok(ThreadQueueAddResponse {
             queued_submission: api_queued_submission(queued_item)?,
         })
@@ -164,6 +177,21 @@ impl ThreadQueueRequestProcessor {
             .await
             .map_err(queue_error)?;
         Ok(ThreadQueueDeleteResponse { deleted })
+    }
+
+    pub(crate) async fn take(
+        &self,
+        params: ThreadQueueTakeParams,
+    ) -> Result<ThreadQueueTakeResponse, JSONRPCErrorError> {
+        let (thread_id, _, _) = self.require_thread(&params.thread_id).await?;
+        let item = self
+            .service()?
+            .take(thread_id, params.queued_submission_id)
+            .await
+            .map_err(queue_error)?;
+        Ok(ThreadQueueTakeResponse {
+            queued_submission: item.map(api_queued_submission).transpose()?,
+        })
     }
 
     pub(crate) async fn reorder(
