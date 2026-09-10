@@ -346,8 +346,12 @@ mod tests {
 
     #[test]
     fn kitty_local_file_pet_image_uses_file_reference_without_inline_payload() {
+        use base64::Engine as _;
+
         let dir = tempfile::tempdir().unwrap();
         let frame = dir.path().join("frame.png");
+        let encoded_path =
+            base64::engine::general_purpose::STANDARD.encode(frame.to_string_lossy().as_bytes());
         std::fs::write(&frame, b"png").unwrap();
         let request = AmbientPetDraw {
             frame,
@@ -369,7 +373,9 @@ mod tests {
         assert!(output.contains("a=d,d=I,i=49374,q=2;"));
         assert!(output.contains("\x1b[4;3H"));
         assert!(output.contains("a=T,t=f,f=100,c=4,r=2,q=2,i=49374;"));
-        assert!(!output.contains("cG5n"));
+        assert!(output.contains(&format!(
+            "a=T,t=f,f=100,c=4,r=2,q=2,i=49374;{encoded_path}\x1b\\"
+        )));
         assert!(output.contains("\x1b8"));
     }
 
