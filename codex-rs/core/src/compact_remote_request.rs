@@ -5,11 +5,13 @@ use super::trim_function_call_history_to_fit_context_window;
 use crate::Prompt;
 use crate::client::CompactConversationRequestSettings;
 use crate::compact::CompactionAnalyticsDetails;
+use crate::compact_message_batches::MessageCompactionBatches;
 use crate::responses_metadata::CodexResponsesRequestKind;
 use crate::responses_metadata::CompactionTurnMetadata;
 use crate::session::session::Session;
 use crate::session::step_context::StepContext;
 use codex_protocol::auth::AuthMode;
+use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::models::ResponseItem;
 use codex_rollout_trace::CompactionTraceContext;
@@ -60,7 +62,7 @@ pub(super) async fn run_remote_compact_attempt(
         .then(|| history.raw_items().cloned().collect());
     let prompt_input = history.for_prompt(&turn_context.model_info().input_modalities);
     let tool_router = &step_context.tool_router;
-    let prompt = Prompt {
+    let mut prompt = Prompt {
         input: prompt_input,
         tools: tool_router.model_visible_specs(),
         parallel_tool_calls: true,
@@ -75,27 +77,59 @@ pub(super) async fn run_remote_compact_attempt(
             CodexResponsesRequestKind::Compaction(compaction_metadata),
         )
         .await;
-    let new_history = sess
-        .services
-        .model_client
-        .compact_conversation_history(
-            &prompt,
-            turn_context.model_info(),
-            turn_state,
-            CompactConversationRequestSettings {
-                effort: turn_context.reasoning_effort().cloned(),
-                summary: turn_context.reasoning_summary(),
-                service_tier: if sess.services.auth_manager.auth_mode() == Some(AuthMode::ApiKey) {
-                    None
-                } else {
-                    step_context.settings.service_tier.clone()
+    let mut batches = MessageCompactionBatches::prepare(
+        &mut prompt,
+        turn_context.model_info().usable_context_window(),
+    )?;
+    let new_history = loop {
+        let output = sess
+            .services
+            .model_client
+            .compact_conversation_history(
+                &prompt,
+                turn_context.model_info(),
+                turn_state.clone(),
+                CompactConversationRequestSettings {
+                    effort: turn_context.reasoning_effort().cloned(),
+                    summary: turn_context.reasoning_summary(),
+                    service_tier: if sess.services.auth_manager.auth_mode()
+                        == Some(AuthMode::ApiKey)
+                    {
+                        None
+                    } else {
+                        step_context.settings.service_tier.clone()
+                    },
                 },
-            },
-            &turn_context.session_telemetry,
-            compaction_trace,
-            &responses_metadata,
-        )
-        .await?;
+                &turn_context.session_telemetry,
+                compaction_trace,
+                &responses_metadata,
+            )
+            .await;
+        let output = match output {
+            Err(error) if matches!(error.details(), CodexErrorDetails::ContextWindowExceeded) => {
+                let Some(batches) = &mut batches else {
+                    return Err(error);
+                };
+                if !batches.retry_smaller(&mut prompt.input)? {
+                    return Err(error);
+                }
+                info!(
+                    turn_id = %turn_context.sub_id,
+                    "retrying bounded compaction with fewer original messages"
+                );
+                continue;
+            }
+            output => output?,
+        };
+        let Some(batches) = &mut batches else {
+            break output;
+        };
+        batches.validate_output(&output)?;
+        if !batches.has_remaining() {
+            break output;
+        }
+        prompt.input = batches.next_input_after_success(output)?;
+    };
     Ok(RemoteCompactAttempt {
         new_history,
         trace_input_history,

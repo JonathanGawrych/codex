@@ -161,6 +161,7 @@ const WEBSOCKET_CONNECTION_LIMIT_REACHED_MESSAGE: &str = "Responses websocket co
 const PREVIOUS_RESPONSE_NOT_FOUND_CODE: &str = "previous_response_not_found";
 const PREVIOUS_RESPONSE_NOT_FOUND_MESSAGE: &str =
     "Previous response was not found. Retrying the full request.";
+const CONTEXT_WINDOW_EXCEEDED_CODE: &str = "context_length_exceeded";
 const RESPONSES_WEBSOCKET_TIMING_KIND: &str = "responsesapi.websocket_timing";
 const RESPONSES_WEBSOCKET_TIMING_EVENT_TARGET: &str = "codex_api::responses_websocket_timing";
 const SESSION_ID_CLIENT_METADATA_KEY: &str = "session_id";
@@ -628,21 +629,25 @@ fn map_wrapped_websocket_error_event(
 
     if let Some(error) = error.as_ref()
         && let Some(code) = error.code.as_deref()
-        && let Some(fallback_message) = match code {
+    {
+        if code == CONTEXT_WINDOW_EXCEEDED_CODE {
+            return Some(ApiError::ContextWindowExceeded);
+        }
+        if let Some(fallback_message) = match code {
             WEBSOCKET_CONNECTION_LIMIT_REACHED_CODE => {
                 Some(WEBSOCKET_CONNECTION_LIMIT_REACHED_MESSAGE)
             }
             PREVIOUS_RESPONSE_NOT_FOUND_CODE => Some(PREVIOUS_RESPONSE_NOT_FOUND_MESSAGE),
             _ => None,
+        } {
+            return Some(ApiError::Retryable {
+                message: error
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| fallback_message.to_string()),
+                delay: None,
+            });
         }
-    {
-        return Some(ApiError::Retryable {
-            message: error
-                .message
-                .clone()
-                .unwrap_or_else(|| fallback_message.to_string()),
-            delay: None,
-        });
     }
 
     let status = StatusCode::from_u16(status?).ok()?;
@@ -1139,6 +1144,26 @@ mod tests {
             .expect("expected websocket error payload to be parsed");
         let api_error = map_wrapped_websocket_error_event(wrapped_error, payload);
         assert!(api_error.is_none());
+    }
+
+    #[test]
+    fn parse_wrapped_websocket_context_window_error_without_status_is_mapped() {
+        let payload = json!({
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "code": "context_length_exceeded",
+                "message": "Your input exceeds the context window of this model."
+            }
+        })
+        .to_string();
+
+        let wrapped_error = parse_wrapped_websocket_error_event(&payload)
+            .expect("expected websocket error payload to be parsed");
+        let api_error = map_wrapped_websocket_error_event(wrapped_error, payload)
+            .expect("expected websocket error payload to map to ApiError");
+
+        assert!(matches!(api_error, ApiError::ContextWindowExceeded));
     }
 
     #[test]

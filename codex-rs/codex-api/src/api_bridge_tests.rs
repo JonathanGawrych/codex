@@ -70,6 +70,29 @@ fn map_api_error_maps_server_overloaded_from_503_body() {
 }
 
 #[test]
+fn map_api_error_maps_context_window_exceeded_from_400_body() {
+    let body = serde_json::json!({
+        "error": {
+            "message": "The request includes server-side input that exceeds the model limit.",
+            "type": "invalid_request_error",
+            "code": "context_length_exceeded"
+        }
+    })
+    .to_string();
+    let err = map_api_error(ApiError::Transport(TransportError::Http {
+        status: http::StatusCode::BAD_REQUEST,
+        url: Some("http://example.com/v1/responses/compact".to_string()),
+        headers: None,
+        body: Some(body),
+    }));
+
+    assert!(matches!(
+        err.details(),
+        CodexErrorDetails::ContextWindowExceeded
+    ));
+}
+
+#[test]
 fn map_api_error_maps_cloudflare_blocked_response_to_user_message() {
     let mut headers = HeaderMap::new();
     headers.insert(CF_RAY_HEADER, http::HeaderValue::from_static("ray-id"));

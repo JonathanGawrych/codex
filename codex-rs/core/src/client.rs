@@ -929,6 +929,9 @@ impl ModelClient {
                 )));
                 prefix.push(instructions);
             }
+            // A compacted window can retain these exact request-prefix items.
+            // Reuse them instead of duplicating instructions on each batch.
+            prefix.retain(|item| !input.contains(item));
             input.splice(0..0, prefix);
             (String::new(), None)
         } else {

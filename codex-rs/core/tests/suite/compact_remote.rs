@@ -77,6 +77,9 @@ use test_case::test_case;
 use tokio::time::Duration;
 use wiremock::ResponseTemplate;
 
+#[path = "compact_remote_message_batches_tests.rs"]
+mod message_batches;
+
 const CONTEXT_WINDOW_TRUNCATED_OUTPUT_MESSAGE: &str =
     "Output exceeded the available model context and was truncated";
 const TEST_WAV_SAMPLE_RATE: u32 = 8_000;
