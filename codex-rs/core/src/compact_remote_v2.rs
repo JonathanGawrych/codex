@@ -298,15 +298,20 @@ async fn run_remote_compact_task_inner_impl(
         prompt_input_metadata,
         compaction_output,
         compaction_response_id,
-        token_usage,
+        token_usages,
         owned_client_session: _owned_client_session,
     } = attempt;
-    if let Some(token_usage) = token_usage {
+    let mut total_token_usage = TokenUsage::default();
+    for token_usage in token_usages {
         sess.record_rollout_budget_usage(&token_usage)?;
-        analytics_details.active_context_tokens_before = Some(token_usage.input_tokens);
-        analytics_details.compaction_summary_tokens = Some(token_usage.output_tokens);
-        analytics_details.cached_input_tokens = Some(token_usage.cached_input_tokens);
-        analytics_details.cache_write_input_tokens = Some(token_usage.cache_write_input_tokens);
+        total_token_usage.add_assign(&token_usage);
+    }
+    if !total_token_usage.is_zero() {
+        analytics_details.active_context_tokens_before = Some(total_token_usage.input_tokens);
+        analytics_details.compaction_summary_tokens = Some(total_token_usage.output_tokens);
+        analytics_details.cached_input_tokens = Some(total_token_usage.cached_input_tokens);
+        analytics_details.cache_write_input_tokens =
+            Some(total_token_usage.cache_write_input_tokens);
     }
     let (compacted_history, retained_images) = build_v2_compacted_history(
         prompt_input,

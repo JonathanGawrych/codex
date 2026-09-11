@@ -85,6 +85,17 @@ pub fn map_api_error(err: ApiError) -> CodexErr {
                     return CodexErr::ServerOverloaded;
                 }
 
+                if status == http::StatusCode::BAD_REQUEST
+                    && let Ok(parsed) = serde_json::from_str::<Value>(&body_text)
+                    && parsed
+                        .get("error")
+                        .and_then(|error| error.get("code"))
+                        .and_then(Value::as_str)
+                        == Some(CONTEXT_WINDOW_EXCEEDED_ERROR_CODE)
+                {
+                    return CodexErr::ContextWindowExceeded;
+                }
+
                 if (status == http::StatusCode::BAD_REQUEST
                     || status == http::StatusCode::FORBIDDEN)
                     && let Ok(parsed) = serde_json::from_str::<Value>(&body_text)
@@ -206,6 +217,7 @@ const CYBER_POLICY_ERROR_CODE: &str = "cyber_policy";
 const CYBER_POLICY_FALLBACK_MESSAGE: &str =
     "This request has been flagged for possible cybersecurity risk.";
 const MISALIGNMENT_POLICY_VIOLATION_ERROR_CODE: &str = "misalignment_policy_violation";
+const CONTEXT_WINDOW_EXCEEDED_ERROR_CODE: &str = "context_length_exceeded";
 const MISALIGNMENT_POLICY_VIOLATION_FALLBACK_MESSAGE: &str =
     "This request was blocked due to a misalignment policy violation.";
 const CLOUDFLARE_BLOCKED_MESSAGE: &str =
