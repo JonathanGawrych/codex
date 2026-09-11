@@ -1379,10 +1379,14 @@ impl MessageProcessor {
                 self.thread_processor.thread_read(&request_id, params).await
             }
             ClientRequest::ThreadTurnsList { params, .. } => {
-                self.thread_processor.thread_turns_list(params).await
+                self.thread_processor
+                    .thread_turns_list(params, app_server_client_name.as_deref())
+                    .await
             }
             ClientRequest::ThreadItemsList { params, .. } => {
-                self.thread_processor.thread_items_list(params).await
+                self.thread_processor
+                    .thread_items_list(params, app_server_client_name.as_deref())
+                    .await
             }
             ClientRequest::ThreadShellCommand { params, .. } => {
                 self.thread_processor

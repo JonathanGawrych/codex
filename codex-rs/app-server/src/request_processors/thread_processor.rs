@@ -888,19 +888,27 @@ impl ThreadRequestProcessor {
     pub(crate) async fn thread_turns_list(
         &self,
         params: ThreadTurnsListParams,
+        app_server_client_name: Option<&str>,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_turns_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let mut response = self.thread_turns_list_response_inner(params).await?;
+        if should_redact_thread_history_payloads(app_server_client_name) {
+            redact_thread_history_payloads(&mut response.data);
+        }
+        Ok(Some(response.into()))
     }
 
     pub(crate) async fn thread_items_list(
         &self,
         params: ThreadItemsListParams,
+        app_server_client_name: Option<&str>,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.thread_items_list_response_inner(params)
-            .await
-            .map(|response| Some(response.into()))
+        let mut response = self.thread_items_list_response_inner(params).await?;
+        if should_redact_thread_history_payloads(app_server_client_name) {
+            for entry in &mut response.data {
+                redact_thread_history_item(&mut entry.item);
+            }
+        }
+        Ok(Some(response.into()))
     }
 
     pub(crate) async fn thread_timeline_list(
@@ -3645,7 +3653,7 @@ impl ThreadRequestProcessor {
             return Ok(ControlFlow::Break(()));
         }
         let redact_resume_payloads =
-            should_redact_thread_resume_payloads(app_server_client_name.as_deref());
+            should_redact_thread_history_payloads(app_server_client_name.as_deref());
 
         let _thread_list_state_permit = match self.acquire_thread_list_state_permit().await {
             Ok(permit) => permit,
@@ -4071,9 +4079,9 @@ impl ThreadRequestProcessor {
                     })
                     .filter(|turn_id| !turn_id.is_empty());
                 if redact_resume_payloads {
-                    redact_thread_resume_payloads(&mut thread.turns);
+                    redact_thread_history_payloads(&mut thread.turns);
                     if let Some(initial_turns_page) = initial_turns_page.as_mut() {
-                        redact_thread_resume_payloads(&mut initial_turns_page.data);
+                        redact_thread_history_payloads(&mut initial_turns_page.data);
                     }
                 }
 
@@ -4291,7 +4299,7 @@ impl ThreadRequestProcessor {
                 );
             }
             let redact_resume_payloads =
-                should_redact_thread_resume_payloads(app_server_client_name.as_deref());
+                should_redact_thread_history_payloads(app_server_client_name.as_deref());
             let include_turns = !params.exclude_turns;
             if paginated_resume && include_turns {
                 self.send_deprecation_notice(
