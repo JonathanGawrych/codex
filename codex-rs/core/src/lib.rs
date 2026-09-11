@@ -33,6 +33,7 @@ pub use turn_metadata::detached_memory_responses_metadata;
 mod codex_thread;
 mod deferred_input;
 pub use deferred_input::DeferredTurnInput;
+mod compact_message_batches;
 mod compact_model_fallback;
 mod compact_remote_history;
 mod compact_remote_v2;

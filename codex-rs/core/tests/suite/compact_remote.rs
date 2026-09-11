@@ -51,6 +51,8 @@ use test_case::test_case;
 use tokio::time::Duration;
 use wiremock::ResponseTemplate;
 
+#[path = "compact_remote_message_batches_tests.rs"]
+mod message_batches;
 #[path = "compact_remote_trimming.rs"]
 mod trimming;
 
