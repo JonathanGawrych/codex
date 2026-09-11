@@ -94,6 +94,9 @@ use tempfile::TempDir;
 use tokio::time::timeout;
 use uuid::Uuid;
 
+#[path = "mobile_history_previews_tests.rs"]
+mod mobile_history_previews;
+
 #[cfg(windows)]
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 #[cfg(not(windows))]

@@ -669,9 +669,9 @@ pub(super) async fn handle_pending_thread_resume_request(
         initial_turns_page = None;
     }
     if pending.redact_resume_payloads {
-        redact_thread_resume_payloads(&mut thread.turns);
+        redact_thread_history_payloads(&mut thread.turns);
         if let Some(initial_turns_page) = initial_turns_page.as_mut() {
-            redact_thread_resume_payloads(&mut initial_turns_page.data);
+            redact_thread_history_payloads(&mut initial_turns_page.data);
         }
     }
 

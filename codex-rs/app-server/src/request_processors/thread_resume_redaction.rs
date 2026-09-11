@@ -3,38 +3,92 @@ use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::Turn;
 use serde_json::Value as JsonValue;
 
-// Temporary bandaid for remote clients: thread/resume can include large MCP and
-// image-generation payloads. Keep this response-only so persisted rollout
-// history, model resume history, and other APIs stay unchanged.
+// Mobile history previews are response-only. Desktop/TUI clients can retrieve
+// full detail through the same history APIs; stored history is never changed.
 const REDACTED_PAYLOAD: &str = "[redacted]";
+const PREVIEW_BYTES: usize = 16 * 1024;
+const PREVIEW_NOTICE: &str =
+    "\n[Mobile preview truncated. Open this thread in the TUI or desktop for full details.]";
 const CHATGPT_REMOTE_CLIENT_NAMES: &[&str] =
     &["codex_chatgpt_android_remote", "codex_chatgpt_ios_remote"];
 
-pub(super) fn should_redact_thread_resume_payloads(client_name: Option<&str>) -> bool {
+pub(super) fn should_redact_thread_history_payloads(client_name: Option<&str>) -> bool {
     client_name.is_some_and(|client_name| CHATGPT_REMOTE_CLIENT_NAMES.contains(&client_name))
 }
 
-pub(super) fn redact_thread_resume_payloads(turns: &mut [Turn]) {
+pub(super) fn redact_thread_history_payloads(turns: &mut [Turn]) {
     for turn in turns {
-        turn.items.retain_mut(|item| match item {
-            ThreadItem::McpToolCall {
-                arguments,
-                result,
-                error,
-                ..
-            } => {
-                *arguments = JsonValue::String(REDACTED_PAYLOAD.to_string());
-                if result.is_some() {
-                    *result = Some(Box::new(redacted_mcp_tool_call_result()));
-                }
-                if let Some(error) = error {
-                    error.message = REDACTED_PAYLOAD.to_string();
-                }
-                true
-            }
-            ThreadItem::ImageGeneration(_) => false,
-            _ => true,
+        turn.items.retain_mut(|item| {
+            redact_thread_history_item(item);
+            !matches!(item, ThreadItem::ImageGeneration(_))
         });
+    }
+}
+
+pub(super) fn redact_thread_history_item(item: &mut ThreadItem) {
+    match item {
+        ThreadItem::McpToolCall {
+            arguments,
+            result,
+            error,
+            ..
+        } => {
+            *arguments = JsonValue::String(REDACTED_PAYLOAD.to_string());
+            if result.is_some() {
+                *result = Some(Box::new(redacted_mcp_tool_call_result()));
+            }
+            if let Some(error) = error {
+                error.message = REDACTED_PAYLOAD.to_string();
+            }
+        }
+        ThreadItem::FileChange { changes, .. } => {
+            let mut remaining = PREVIEW_BYTES;
+            for change in changes {
+                let original_bytes = change.diff.len();
+                truncate_preview(&mut change.diff, remaining);
+                remaining = remaining.saturating_sub(original_bytes);
+            }
+        }
+        ThreadItem::CommandExecution {
+            aggregated_output: Some(output),
+            ..
+        } => {
+            truncate_preview(output, PREVIEW_BYTES);
+        }
+        // Keep the item and its ID in item pages so pagination can still
+        // advance even when a page contains only generated images.
+        ThreadItem::ImageGeneration(image) => {
+            image.result.clear();
+            if let Some(prompt) = &mut image.revised_prompt {
+                truncate_preview(prompt, PREVIEW_BYTES);
+            }
+        }
+        ThreadItem::UserMessage { .. }
+        | ThreadItem::HookPrompt { .. }
+        | ThreadItem::AgentMessage { .. }
+        | ThreadItem::FunctionCallOutput { .. }
+        | ThreadItem::Plan { .. }
+        | ThreadItem::Reasoning { .. }
+        | ThreadItem::CommandExecution {
+            aggregated_output: None,
+            ..
+        }
+        | ThreadItem::DynamicToolCall { .. }
+        | ThreadItem::CollabAgentToolCall { .. }
+        | ThreadItem::SubAgentActivity { .. }
+        | ThreadItem::WebSearch(_)
+        | ThreadItem::ImageView { .. }
+        | ThreadItem::Sleep(_)
+        | ThreadItem::EnteredReviewMode { .. }
+        | ThreadItem::ExitedReviewMode { .. }
+        | ThreadItem::ContextCompaction { .. } => {}
+    }
+}
+
+fn truncate_preview(text: &mut String, max_bytes: usize) {
+    if text.len() > max_bytes {
+        text.truncate(text.floor_char_boundary(max_bytes));
+        text.push_str(PREVIEW_NOTICE);
     }
 }
 
@@ -48,6 +102,10 @@ fn redacted_mcp_tool_call_result() -> McpToolCallResult {
         meta: None,
     }
 }
+
+#[cfg(test)]
+#[path = "thread_history_preview_tests.rs"]
+mod preview_tests;
 
 #[cfg(test)]
 mod tests {
@@ -115,7 +173,7 @@ mod tests {
             }),
         ]);
 
-        redact_thread_resume_payloads(&mut thread.turns);
+        redact_thread_history_payloads(&mut thread.turns);
 
         assert_eq!(thread.turns[0].items.len(), 2);
         assert_eq!(
@@ -173,7 +231,7 @@ mod tests {
             duration_ms: Some(8),
         }]);
 
-        redact_thread_resume_payloads(&mut thread.turns);
+        redact_thread_history_payloads(&mut thread.turns);
 
         assert_eq!(
             thread.turns[0].items[0],
