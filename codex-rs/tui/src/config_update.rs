@@ -26,7 +26,6 @@ use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_exec_server::LOCAL_FS;
 use codex_features::FEATURES;
 use codex_git_utils::resolve_root_git_project_for_trust;
-use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::config_types::TrustLevel;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::LegacyAppPathString;
@@ -100,25 +99,6 @@ pub(crate) fn build_model_selection_edits(
         replace_config_value("model", serde_json::json!(model)),
         effort_edit,
     ]
-}
-
-pub(crate) fn build_service_tier_selection_edits(service_tier: Option<&str>) -> Vec<ConfigEdit> {
-    let service_tier_edit = service_tier.map_or_else(
-        || clear_config_value("service_tier"),
-        |service_tier| {
-            let config_value = if service_tier == SERVICE_TIER_DEFAULT_REQUEST_VALUE {
-                SERVICE_TIER_DEFAULT_REQUEST_VALUE
-            } else {
-                match codex_protocol::config_types::ServiceTier::from_request_value(service_tier) {
-                    Some(codex_protocol::config_types::ServiceTier::Fast) => "fast",
-                    Some(codex_protocol::config_types::ServiceTier::Flex) => "flex",
-                    None => service_tier,
-                }
-            };
-            replace_config_value("service_tier", serde_json::json!(config_value))
-        },
-    );
-    vec![service_tier_edit]
 }
 
 pub(crate) fn build_feature_enabled_edit(feature_key: &str, enabled: bool) -> ConfigEdit {

@@ -1238,8 +1238,8 @@ pub(crate) enum AppEvent {
         voice: codex_protocol::protocol::RealtimeVoice,
     },
 
-    /// Persist the selected service tier to the appropriate config.
-    PersistServiceTierSelection {
+    /// Apply the selected service tier to the active thread's TUI state.
+    ActiveThreadServiceTierChanged {
         service_tier: Option<String>,
     },
 

@@ -417,7 +417,7 @@ async fn dynamic_service_tier_command_returns_to_latest() -> Result<()> {
     assert!(
         std::iter::from_fn(|| events.try_recv().ok()).any(|event| matches!(
             event,
-            AppEvent::PersistServiceTierSelection { service_tier: Some(tier) }
+            AppEvent::CodexOp(AppCommand::OverrideTurnContext { service_tier: Some(Some(tier)), .. })
                 if tier == ServiceTier::Fast.request_value()
         ))
     );
