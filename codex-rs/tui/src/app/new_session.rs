@@ -92,7 +92,6 @@ impl App {
             }
         };
         self.apply_runtime_policy_overrides(&mut config, RuntimePolicyOverrideScope::All);
-        config.service_tier = self.chat_widget.configured_service_tier();
         if let Some(defaults) = defaults.as_ref() {
             overlay_new_session_defaults(
                 &mut config,

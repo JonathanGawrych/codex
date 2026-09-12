@@ -206,8 +206,10 @@ async fn replacement_preserves_remote_launch_paths_and_older_servers() -> Result
         app.config.sqlite = SqliteConfig::new_for_testing(home.path().abs());
         std::fs::write(
             home.path().join("config.toml"),
-            "model = \"configured-model\"\n",
+            "model = \"configured-model\"\nservice_tier = \"flex\"\n",
         )?;
+        app.chat_widget
+            .set_service_tier(Some(ServiceTier::Fast.request_value().to_string()));
         let (server, requests, proxy) = start_recording_app_server_with_history(
             &app.config,
             capabilities,
@@ -234,10 +236,15 @@ async fn replacement_preserves_remote_launch_paths_and_older_servers() -> Result
         let starts = recorded_params(&requests, "thread/start");
         assert_eq!(starts.len(), 1);
         assert_eq!(
-            (&starts[0]["cwd"], &starts[0]["model"]),
+            (
+                &starts[0]["cwd"],
+                &starts[0]["model"],
+                &starts[0]["serviceTier"]
+            ),
             (
                 &serde_json::json!(remote_cwd),
-                &serde_json::json!("configured-model")
+                &serde_json::json!("configured-model"),
+                &serde_json::json!("flex")
             ),
         );
         assert_eq!(app.chat_widget.current_model(), "configured-model");

@@ -2188,32 +2188,16 @@ impl App {
                     }
                 }
             }
-            AppEvent::PersistServiceTierSelection { service_tier } => {
+            AppEvent::ActiveThreadServiceTierChanged { service_tier } => {
                 self.refresh_status_line();
-                self.config.service_tier = service_tier.clone();
                 self.sync_active_thread_service_tier_to_cached_session()
                     .await;
-                let edits = crate::config_update::build_service_tier_selection_edits(
-                    service_tier.as_deref(),
-                );
-                match self.persist_model_defaults(app_server.request_handle(), edits, "default service tier")
-                    .await
-                {
-                    Ok(()) => {
-                        let message = if let Some(service_tier) = service_tier {
-                            format!("Service tier set to {service_tier}")
-                        } else {
-                            "Service tier cleared".to_string()
-                        };
-                        self.chat_widget.add_info_message(message, /*hint*/ None);
-                    }
-                    Err(err) => {
-                        tracing::error!(error = %err, "failed to persist service tier selection");
-                        self.chat_widget.add_error_message(format!(
-                            "Failed to save default service tier: {err}"
-                        ));
-                    }
-                }
+                let message = if let Some(service_tier) = service_tier {
+                    format!("Service tier set to {service_tier}")
+                } else {
+                    "Service tier cleared".to_string()
+                };
+                self.chat_widget.add_info_message(message, /*hint*/ None);
             }
             AppEvent::UpdateAskForApprovalPolicy(policy) => {
                 if self.reject_pending_permission_change() {

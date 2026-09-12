@@ -73,7 +73,7 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
                 effort: Some(ReasoningEffortConfig::High),
             },
             AppEvent::PersistPlanModeReasoningEffort(Some(ReasoningEffortConfig::High)),
-            AppEvent::PersistServiceTierSelection {
+            AppEvent::ActiveThreadServiceTierChanged {
                 service_tier: Some(ServiceTier::Fast.request_value().into()),
             },
             AppEvent::ApplyAdvancedReasoning {
@@ -94,11 +94,11 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
             .join("\n");
         assert_eq!(
             messages.matches("higher-priority").count(),
-            if outcome == "overridden" { 4 } else { 0 }
+            if outcome == "overridden" { 3 } else { 0 }
         );
         assert_eq!(
             messages.matches("Failed to save").count(),
-            if outcome == "rejected" { 4 } else { 0 }
+            if outcome == "rejected" { 3 } else { 0 }
         );
         if outcome == "overridden" {
             insta::assert_snapshot!("overridden_model_defaults", messages);
@@ -107,7 +107,6 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
         if outcome == "rejected" {
             assert_eq!(persisted, "[broken");
             assert!(!messages.contains("Model changed"));
-            assert!(!messages.contains("Service tier set"));
         } else {
             assert_eq!(
                 toml::from_str::<toml::Value>(&persisted)?,
@@ -115,11 +114,11 @@ async fn model_default_saves_report_server_outcomes_and_target_server_profile() 
                     model = "gpt-5.4"
                     model_reasoning_effort = "medium"
                     plan_mode_reasoning_effort = "high"
-                    service_tier = "fast"
                 })
             );
         }
         assert_eq!(std::fs::read(&local_config_path).ok(), local_config_before);
+        assert_eq!(app.config.service_tier, None);
         assert_eq!(
             std::fs::read_to_string(&base_path)?,
             "# Base configuration stays unchanged.\n"
