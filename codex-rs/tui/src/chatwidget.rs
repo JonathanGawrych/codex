@@ -1347,6 +1347,14 @@ impl ChatWidget {
             return;
         }
 
+        if client_id.is_some_and(|client_id| {
+            self.input_queue.optimistic_user_message_id.as_deref() == Some(client_id)
+        }) {
+            self.input_queue.optimistic_user_message_id = None;
+            self.last_rendered_user_message_display = Some(display);
+            return;
+        }
+
         if self
             .input_queue
             .pending_steers

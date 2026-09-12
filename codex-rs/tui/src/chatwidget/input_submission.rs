@@ -371,7 +371,7 @@ impl ChatWidget {
             crate::prompt_timestamp::current_prompt_submission_timestamp();
         let prompt_created_at_ms = prompt_submission_timestamp.created_at_ms;
         let op = AppCommand::user_turn(
-            client_user_message_id,
+            client_user_message_id.clone(),
             items,
             prompt_submission_timestamp.context_value,
             self.config.cwd.to_path_buf(),
@@ -416,6 +416,7 @@ impl ChatWidget {
         self.dismiss_backend_banner_for_new_turn();
         if render_in_history {
             self.input_queue.user_turn_pending_start = true;
+            self.input_queue.optimistic_user_message_id = Some(client_user_message_id);
         }
 
         // Persist the submitted text to cross-session message history. Mentions are encoded into

@@ -500,7 +500,7 @@ impl App {
         &mut self,
         app_server: &mut AppServerSession,
         thread_id: ThreadId,
-        op: AppCommand,
+        mut op: AppCommand,
     ) -> Result<()> {
         if self.thread_unavailable(thread_id) {
             self.chat_widget.add_error_message(
@@ -513,6 +513,7 @@ impl App {
         }
 
         crate::session_log::log_outbound_op(&op);
+        super::remote_user_input::prepare_remote_user_turn(app_server, &mut op).await?;
 
         if self
             .try_resolve_app_server_request(app_server, thread_id, &op)

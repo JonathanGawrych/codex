@@ -364,6 +364,7 @@ impl ChatWidget {
         self.clear_active_hook_cell();
         // Reset running state and clear streaming buffers.
         self.input_queue.user_turn_pending_start = false;
+        self.input_queue.optimistic_user_message_id = None;
         self.input_queue.session_exit_after_turn = None;
         self.clear_guardian_review_status();
         self.turn_lifecycle.finish();

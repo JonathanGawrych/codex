@@ -2366,6 +2366,30 @@ fn user_history_cell_summarizes_inline_data_urls() {
 }
 
 #[test]
+fn user_history_cell_does_not_repeat_remote_image_text_element() {
+    let placeholder = "[Image #1]";
+    let message = format!("{placeholder}\ndescribe inline image");
+    let cell = UserHistoryCell {
+        message,
+        text_elements: vec![TextElement::new(
+            (0..placeholder.len()).into(),
+            Some(placeholder.to_string()),
+        )],
+        local_image_paths: Vec::new(),
+        remote_image_urls: vec!["data:image/png;base64,aGVsbG8=".to_string()],
+    };
+
+    let rendered = render_lines(&cell.display_lines(/*width*/ 80)).join("\n");
+
+    assert_eq!(rendered.matches(placeholder).count(), 1);
+    insta::assert_snapshot!(rendered, @r"
+
+› [Image #1]
+  describe inline image
+");
+}
+
+#[test]
 fn user_history_cell_numbers_multiple_remote_images() {
     let cell = UserHistoryCell {
         message: "describe both".to_string(),

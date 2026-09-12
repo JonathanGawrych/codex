@@ -513,6 +513,72 @@ async fn submission_preserves_text_elements_and_local_images() {
 }
 
 #[tokio::test]
+async fn converted_remote_image_commit_reuses_optimistic_user_message() {
+    let (mut chat, mut events, mut operations) =
+        make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    let placeholder = "[Image #1]";
+    let text = format!("{placeholder} inspect this screenshot");
+    let text_elements = vec![TextElement::new(
+        (0..placeholder.len()).into(),
+        Some(placeholder.to_string()),
+    )];
+    chat.bottom_pane.set_composer_text(
+        text,
+        text_elements,
+        vec![PathBuf::from("/tmp/submitted.png")],
+    );
+    while events.try_recv().is_ok() {}
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let AppCommand::UserTurn {
+        client_user_message_id,
+        mut items,
+        ..
+    } = next_submit_op(&mut operations)
+    else {
+        unreachable!("next_submit_op only returns a user turn");
+    };
+    let mut initial_user_cells = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(
+            event,
+            AppEvent::InsertHistoryCell(cell) if cell.as_any().is::<UserHistoryCell>()
+        ) {
+            initial_user_cells += 1;
+        }
+    }
+    assert_eq!(initial_user_cells, 1);
+    items[0] = UserInput::Image {
+        url: "data:image/png;base64,aGVsbG8=".to_string(),
+        detail: None,
+    };
+
+    chat.on_committed_user_message(
+        &items,
+        Some(&client_user_message_id),
+        /*from_replay*/ false,
+    );
+    chat.on_committed_user_message(
+        &items,
+        Some(&client_user_message_id),
+        /*from_replay*/ false,
+    );
+
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(
+            event,
+            AppEvent::InsertHistoryCell(cell) if cell.as_any().is::<UserHistoryCell>()
+        ));
+    }
+    assert_eq!(
+        chat.last_rendered_user_message_display,
+        Some(ChatWidget::user_message_display_from_inputs(&items))
+    );
+}
+
+#[tokio::test]
 async fn submission_includes_configured_active_permission_profile() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

@@ -172,16 +172,15 @@ impl HistoryCell for UserHistoryCell {
         let style = user_message_style();
         let element_style = style.fg(Color::Cyan);
 
-        let wrapped_remote_images = if self.remote_image_urls.is_empty() {
+        let remote_image_labels =
+            self.remote_image_labels_without_text_elements(message.as_ref(), text_elements);
+        let wrapped_remote_images = if remote_image_labels.is_empty() {
             None
         } else {
             Some(plain_hyperlink_lines(adaptive_wrap_lines(
-                self.remote_image_urls
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, _url)| {
-                        remote_image_display_line(element_style, idx.saturating_add(1))
-                    }),
+                remote_image_labels
+                    .into_iter()
+                    .map(|label_number| remote_image_display_line(element_style, label_number)),
                 RtOptions::new(usize::from(wrap_width))
                     .wrap_algorithm(textwrap::WrapAlgorithm::FirstFit),
             )))
@@ -278,18 +277,41 @@ impl HistoryCell for UserHistoryCell {
     fn raw_lines(&self) -> Vec<Line<'static>> {
         let message = sanitize_user_text((&self.message).into());
         let mut lines = raw_lines_from_source(message.as_ref().trim_end_matches(['\r', '\n']));
-        if !self.remote_image_urls.is_empty() {
+        let text_elements = if message.as_ref() == self.message {
+            self.text_elements.as_slice()
+        } else {
+            &[]
+        };
+        let remote_image_labels =
+            self.remote_image_labels_without_text_elements(message.as_ref(), text_elements);
+        if !remote_image_labels.is_empty() {
             if !lines.is_empty() {
                 lines.push(Line::from(""));
             }
             lines.extend(
-                self.remote_image_urls
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, _url)| Line::from(local_image_label_text(idx.saturating_add(1)))),
+                remote_image_labels
+                    .into_iter()
+                    .map(|label_number| Line::from(local_image_label_text(label_number))),
             );
         }
         lines
+    }
+}
+
+impl UserHistoryCell {
+    fn remote_image_labels_without_text_elements(
+        &self,
+        message: &str,
+        text_elements: &[TextElement],
+    ) -> Vec<usize> {
+        (1..=self.remote_image_urls.len())
+            .filter(|label_number| {
+                let label = local_image_label_text(*label_number);
+                !text_elements
+                    .iter()
+                    .any(|element| element.placeholder(message) == Some(label.as_str()))
+            })
+            .collect()
     }
 }
 

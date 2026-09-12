@@ -232,6 +232,17 @@ impl ChatWidget {
         true
     }
 
+    pub(crate) fn handle_local_attachment_preparation_failure(&mut self, message: String) -> bool {
+        if self.handle_turn_start_rejection(message.clone()) {
+            return true;
+        }
+        if !self.enqueue_rejected_steer() {
+            return false;
+        }
+        self.add_error_message(message);
+        true
+    }
+
     /// Handle a turn aborted due to user interrupt (Esc), budget exhaustion,
     /// or review completion. An interrupt requested while user input is queued
     /// submits that input immediately. Other aborts restore queued input into
