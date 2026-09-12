@@ -1087,8 +1087,8 @@ pub(crate) enum AppEvent {
         personality: Personality,
     },
 
-    /// Persist the selected service tier to the appropriate config.
-    PersistServiceTierSelection {
+    /// Apply the selected service tier to the active thread's TUI state.
+    ActiveThreadServiceTierChanged {
         service_tier: Option<String>,
     },
 
