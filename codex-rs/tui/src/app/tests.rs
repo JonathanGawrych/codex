@@ -79,6 +79,8 @@ mod reasoning_resume_tests;
 mod recap_generation;
 #[path = "tests/resume_shutdown_tests.rs"]
 mod resume_shutdown_tests;
+#[path = "tests/remote_user_input_tests.rs"]
+mod remote_user_input_tests;
 mod safety_buffering;
 #[path = "tests/server_queue_tests.rs"]
 mod server_queue_tests;

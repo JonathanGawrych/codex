@@ -2,9 +2,9 @@ use super::*;
 use crate::app_event::ConnectorsSnapshot;
 use crate::bottom_pane::RestrictedInputMode;
 use crate::history_cell::ThreadRecapLoadingCell;
+use crate::test_support::normalize_snapshot_times;
 use base64::Engine;
 use codex_app_server_protocol::ImageReference;
-use crate::test_support::normalize_snapshot_times;
 use codex_protocol::models::ManagedFileSystemPermissions;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
@@ -550,6 +550,76 @@ async fn submission_preserves_text_elements_and_local_images() {
     assert_eq!(stored_elements, text_elements);
     assert_eq!(stored_images, local_images);
     assert!(stored_remote_image_urls.is_empty());
+}
+
+#[tokio::test]
+async fn converted_remote_image_commit_reuses_optimistic_user_message() {
+    let (mut chat, mut events, mut operations) =
+        make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    let placeholder = "[Image #1]";
+    let text = format!("{placeholder} inspect this screenshot");
+    let text_elements = vec![TextElement::new(
+        (0..placeholder.len()).into(),
+        Some(placeholder.to_string()),
+    )];
+    chat.bottom_pane.set_composer_text(
+        text,
+        text_elements,
+        vec![PathBuf::from("/tmp/submitted.png")],
+    );
+    while events.try_recv().is_ok() {}
+
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let AppCommand::UserTurn {
+        client_user_message_id,
+        mut items,
+        ..
+    } = next_submit_op(&mut operations)
+    else {
+        unreachable!("next_submit_op only returns a user turn");
+    };
+    let mut initial_user_cells = 0;
+    while let Ok(event) = events.try_recv() {
+        if matches!(
+            event,
+            AppEvent::InsertHistoryCell(cell) if cell.as_any().is::<UserHistoryCell>()
+        ) {
+            initial_user_cells += 1;
+        }
+    }
+    assert_eq!(initial_user_cells, 1);
+    items[0] = UserInput::Image {
+        image: codex_app_server_protocol::ImageReference::Inline {
+            url: "data:image/png;base64,aGVsbG8=".to_string(),
+        },
+        detail: None,
+    };
+
+    chat.on_committed_user_message(
+        &items,
+        Some(&client_user_message_id),
+        /*from_replay*/ false,
+        "turn-1",
+    );
+    chat.on_committed_user_message(
+        &items,
+        Some(&client_user_message_id),
+        /*from_replay*/ false,
+        "turn-1",
+    );
+
+    while let Ok(event) = events.try_recv() {
+        assert!(!matches!(
+            event,
+            AppEvent::InsertHistoryCell(cell) if cell.as_any().is::<UserHistoryCell>()
+        ));
+    }
+    assert_eq!(
+        chat.last_rendered_user_message_display,
+        Some(ChatWidget::user_message_display_from_inputs(&items))
+    );
 }
 
 #[tokio::test]
@@ -2524,7 +2594,10 @@ async fn reconnect_holds_only_recovered_input_until_manually_edited() {
             assert_no_submit_op(&mut ops);
             chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
             assert_matches!(next_submit_op(&mut ops), Op::UserTurn { .. });
-            chat.input_queue.user_turn_pending_start = false;
+            chat.on_task_complete(
+                /*last_agent_message*/ None, /*completion*/ None,
+                /*from_replay*/ false,
+            );
         }
         chat.input_queue
             .queued_user_messages
@@ -2582,9 +2655,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
             let (items, client_user_message_id) = loop {
                 match rx.recv().await.unwrap() {
                     AppEvent::ImagesPrepared(id) => chat.on_images_prepared(id),
-                    AppEvent::InsertHistoryCell(cell) => {
-                        rendered.push(cell.display_lines(/*width*/ 80))
-                    }
+                    AppEvent::InsertHistoryCell(cell) => rendered.push(cell.raw_lines()),
                     AppEvent::CodexOp(AppCommand::UserTurn {
                         items,
                         client_user_message_id,
@@ -2625,7 +2696,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
                     "turn",
                 );
             }
-            rendered.extend(drain_insert_history(&mut rx));
+            rendered.extend(drain_insert_history_with(&mut rx, HistoryCell::raw_lines));
             assert_eq!(rendered.len(), 1);
             assert_chatwidget_snapshot!(
                 "portable_image_echo_renders_once",
@@ -2638,7 +2709,7 @@ async fn image_submission_is_portable_for_new_turns_and_steers() {
                 /*from_replay*/ true,
                 "turn",
             );
-            let replayed = drain_insert_history(&mut rx);
+            let replayed = drain_insert_history_with(&mut rx, HistoryCell::raw_lines);
             assert_eq!(replayed, rendered);
             handle_turn_completed(&mut chat, "turn", /*duration_ms*/ None);
             drain_insert_history(&mut rx);

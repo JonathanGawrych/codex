@@ -247,6 +247,7 @@ mod realtime_settings;
 mod reasoning_replay;
 mod recap;
 mod reconnect;
+mod remote_user_input;
 mod replay_filter;
 mod resize_reflow;
 mod resume_config;

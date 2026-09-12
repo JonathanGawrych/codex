@@ -1357,6 +1357,18 @@ impl ChatWidget {
         // Servers may omit media from receipts, so prefer the submission identity.
         if client_id.is_some() && self.last_rendered_user_message_client_id.as_deref() == client_id
         {
+            if self.input_queue.optimistic_user_message_id.as_deref() == client_id {
+                self.input_queue.optimistic_user_message_id = None;
+                self.last_rendered_user_message_display = Some(display);
+            }
+            return;
+        }
+
+        if client_id.is_some_and(|client_id| {
+            self.input_queue.optimistic_user_message_id.as_deref() == Some(client_id)
+        }) {
+            self.input_queue.optimistic_user_message_id = None;
+            self.last_rendered_user_message_display = Some(display);
             return;
         }
 

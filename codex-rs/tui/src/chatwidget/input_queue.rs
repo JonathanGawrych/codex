@@ -50,6 +50,8 @@ pub(super) struct InputQueueState {
     pub(super) queued_user_message_history_records: VecDeque<UserMessageHistoryRecord>,
     /// A user turn has been submitted to core, but `TurnStarted` has not arrived yet.
     pub(super) user_turn_pending_start: bool,
+    /// User input rendered before submission while its server history item is pending.
+    pub(super) optimistic_user_message_id: Option<String>,
     /// User messages that tried to steer a non-regular turn and must be retried first.
     pub(super) rejected_steers_queue: VecDeque<UserMessage>,
     /// The origin of each rejected steer, kept in lockstep with its message.
@@ -85,6 +87,7 @@ impl InputQueueState {
         self.queued_user_messages.clear();
         self.queued_user_message_history_records.clear();
         self.user_turn_pending_start = false;
+        self.optimistic_user_message_id = None;
         self.rejected_steers_queue.clear();
         self.rejected_steer_sources.clear();
         self.rejected_steer_history_records.clear();

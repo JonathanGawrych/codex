@@ -305,6 +305,17 @@ impl ChatWidget {
         true
     }
 
+    pub(crate) fn handle_local_attachment_preparation_failure(&mut self, message: String) -> bool {
+        if self.handle_turn_start_rejection(message.clone()) {
+            return true;
+        }
+        if !self.enqueue_rejected_steer() {
+            return false;
+        }
+        self.add_error_message(message);
+        true
+    }
+
     /// Handle a turn aborted due to user interrupt (Esc), budget exhaustion,
     /// or review completion. An interrupt requested while user input is queued
     /// submits that input immediately. Other aborts restore queued input into
@@ -736,6 +747,17 @@ impl ChatWidget {
         self.turn_lifecycle
             .restore_running(self.turn_lifecycle.agent_turn_running, Instant::now());
         self.update_task_running_state();
+        // A submitted prompt can still be waiting for turn/start without showing Working.
+        // Preserve that state until the server acknowledges the turn.
+        if preserve_in_flight_turn
+            && self.input_queue.user_turn_pending_start
+            && !restored_task_running
+            && !self.turn_lifecycle.agent_turn_running
+            && !self.review.is_review_mode
+            && !self.is_mcp_startup_running()
+        {
+            self.bottom_pane.set_task_running(/*running*/ false);
+        }
         if restored_task_running && !self.bottom_pane.is_task_running() {
             self.bottom_pane.set_task_running(/*running*/ true);
             self.refresh_status_surfaces();
