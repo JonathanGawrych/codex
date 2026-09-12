@@ -237,6 +237,7 @@ mod prompt_backtrack;
 mod rate_limit_refresh;
 mod recap;
 mod reconnect;
+mod remote_user_input;
 mod replay_filter;
 mod resize_reflow;
 mod resume_config;

@@ -42,6 +42,8 @@ mod plugin_catalog;
 mod rate_limits;
 #[path = "tests/recap_generation_tests.rs"]
 mod recap_generation;
+#[path = "tests/remote_user_input_tests.rs"]
+mod remote_user_input_tests;
 mod safety_buffering;
 #[path = "tests/server_queue_tests.rs"]
 mod server_queue_tests;

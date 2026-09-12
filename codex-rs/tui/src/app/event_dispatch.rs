@@ -610,19 +610,30 @@ impl App {
                     let unsupported_permissions = err
                         .downcast_ref::<UnsupportedLegacyPermissionProfile>()
                         .is_some();
+                    let attachment_preparation_failed = err
+                        .downcast_ref::<
+                            super::remote_user_input::RemoteUserInputPreparationError,
+                        >()
+                        .is_some();
                     if unsupported_permissions {
                         self.chat_widget
                             .set_queue_autosend_suppressed(/*suppressed*/ true);
                     }
+                    let turn_start_failed = matches!(
+                        err.downcast_ref::<TypedRequestError>(),
+                        Some(TypedRequestError::Server { method, .. }) if method == "turn/start"
+                    );
+                    let message = format!("Failed to start turn: {err:#}");
                     let handled = is_user_turn
-                        && (matches!(
-                            err.downcast_ref::<TypedRequestError>(),
-                            Some(TypedRequestError::Server { method, .. })
-                                if method == "turn/start"
-                        ) || unsupported_permissions)
-                        && self
-                            .chat_widget
-                            .handle_turn_start_rejection(format!("Failed to start turn: {err:#}"));
+                        && (turn_start_failed
+                            || unsupported_permissions
+                            || attachment_preparation_failed)
+                        && if attachment_preparation_failed {
+                            self.chat_widget
+                                .handle_local_attachment_preparation_failure(message)
+                        } else {
+                            self.chat_widget.handle_turn_start_rejection(message)
+                        };
                     if !handled {
                         return Err(err);
                     }
