@@ -19,6 +19,7 @@ fn daemon(home: &std::path::Path) -> crate::Daemon {
         operation_lock_file: state.join("daemon.lock"),
         settings_file: state.join("settings.json"),
         managed_codex_bin: crate::managed_install::managed_codex_bin(home),
+        source_install: false,
     }
 }
 

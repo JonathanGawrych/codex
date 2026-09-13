@@ -308,6 +308,7 @@ fn manual_update_daemon(home: &TempDir) -> (Daemon, String) {
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
             managed_codex_bin: standalone.join("current/codex"),
+            source_install: false,
         },
         release,
     )

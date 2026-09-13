@@ -535,6 +535,7 @@ async fn interactive_tmux_startup_does_not_execute_workspace_helpers() -> Result
     let mut output_rx = spawned.stdout_rx;
     let writer = session.writer_sender();
     let mut output = String::new();
+    let mut embedded_confirmed = false;
     let ansi = regex_lite::Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]")?;
     let ready = timeout(Duration::from_secs(/*secs*/ 45), async {
         while let Some(bytes) = output_rx.recv().await {
@@ -554,6 +555,10 @@ async fn interactive_tmux_startup_does_not_execute_workspace_helpers() -> Result
                 .collect();
             if text.contains("Trustthisfolder?") {
                 return Ok::<_, anyhow::Error>(());
+            }
+            if !embedded_confirmed && text.contains("ContinuewithanembeddedAppServer?[y/N]") {
+                writer.send(b"y\r".to_vec()).await?;
+                embedded_confirmed = true;
             }
         }
         anyhow::bail!("TUI exited before trust prompt")

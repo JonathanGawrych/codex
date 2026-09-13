@@ -238,6 +238,9 @@ async fn daemon_startup(command: &str) -> Result<()> {
             steps.push_back(("GPT-5.6-Terra", b"\x14"));
             "Runningwithoutthesharedbackgroundserver:--strict-config"
         };
+        if bedrock_onboarding || matches!(command, "resume" | "fork" | "restrictive-job") {
+            steps.push_front(("ContinuewithanembeddedAppServer?[y/N]", b"y\r"));
+        }
         let program = if cfg!(windows) && command == "restrictive-job" {
             env.insert("CODEX_TEST_RESTRICTIVE_DAEMON_START".into(), "1".into());
             args = vec![

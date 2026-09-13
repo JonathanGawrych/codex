@@ -251,6 +251,15 @@ pub async fn ensure_remote_control_ready() -> Result<RemoteControlReadyOutput> {
     Box::pin(Daemon::from_environment()?.ensure_remote_control_ready()).await
 }
 
+/// Returns whether managed app-server starts should enable Remote Control.
+pub async fn remote_control_is_enabled() -> Result<bool> {
+    ensure_supported_platform()?;
+    Ok(Daemon::from_environment()?
+        .load_settings()
+        .await?
+        .remote_control_enabled)
+}
+
 pub async fn enable_remote_control_on_socket(
     socket_path: &Path,
     connect_timeout: Duration,
@@ -1186,8 +1195,6 @@ mod tests {
     use super::RestartMode;
     use super::restart_decision;
     use crate::client::ProbeInfo;
-    #[cfg(unix)]
-    use crate::settings::DaemonSettings;
 
     #[test]
     fn remote_control_status_uses_camel_case_json() {
@@ -1309,6 +1316,7 @@ mod tests {
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
             managed_codex_bin: super::managed_codex_bin(home.path()),
+            source_install: false,
         };
         let lock = daemon.acquire_operation_lock().await.expect("lock");
         let stop = daemon.run(super::LifecycleCommand::Stop);
@@ -1370,6 +1378,7 @@ mod tests {
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
             managed_codex_bin: home.path().join("codex"),
+            source_install: false,
         };
         codex_app_server_transport::daemon_recovery::write_candidates(
             &daemon.recovery_file().expect("recovery path"),
@@ -1427,6 +1436,7 @@ mod tests {
             operation_lock_file: state.join("daemon.lock"),
             settings_file: state.join("settings.json"),
             managed_codex_bin: standalone.join("current/bin/codex"),
+            source_install: false,
         };
         let settings = DaemonSettings::default();
         assert!(
@@ -1488,6 +1498,7 @@ mod tests {
             settings_file,
             managed_codex_bin: temp_dir.path().join("codex"),
             source_install: true,
+            log_diagnostics: false,
         };
 
         assert!(
@@ -1495,6 +1506,33 @@ mod tests {
                 .is_bootstrapped(&DaemonSettings::default())
                 .await
                 .expect("check bootstrap state")
+        );
+    }
+
+    #[tokio::test]
+    async fn daemon_reads_remote_control_enabled_setting() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let settings_file = temp_dir.path().join("settings.json");
+        tokio::fs::write(&settings_file, r#"{"remoteControlEnabled":true}"#)
+            .await
+            .expect("write settings");
+        let daemon = Daemon {
+            socket_path: temp_dir.path().join("app-server-control.sock"),
+            pid_file: temp_dir.path().join("app-server.pid"),
+            update_pid_file: temp_dir.path().join("app-server-updater.pid"),
+            operation_lock_file: temp_dir.path().join("daemon.lock"),
+            settings_file,
+            managed_codex_bin: temp_dir.path().join("codex"),
+            source_install: true,
+            log_diagnostics: false,
+        };
+
+        assert!(
+            daemon
+                .load_settings()
+                .await
+                .expect("read daemon settings")
+                .remote_control_enabled
         );
     }
 }

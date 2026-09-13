@@ -96,6 +96,7 @@ async fn rejected_start(
     let mut exit = spawned.exit_rx;
     let mut output = String::new();
     let mut queries = TerminalQueries::default();
+    let mut embedded_confirmed = false;
     let result = tokio::time::timeout(Duration::from_secs(/*secs*/ 45), async {
         loop {
             tokio::select! {
@@ -106,6 +107,10 @@ async fn rejected_start(
                         return Ok(exit.await?);
                     };
                     output.push_str(&String::from_utf8_lossy(&bytes));
+                    if !embedded_confirmed && output.contains("Continue with an embedded App Server? [y/N]") {
+                        spawned.session.writer_sender().send(b"y\r".to_vec()).await?;
+                        embedded_confirmed = true;
+                    }
                     let replies = queries.feed(&bytes);
                     if !replies.is_empty() { spawned.session.writer_sender().send(replies).await?; }
                 }
@@ -446,6 +451,7 @@ trust_level = "trusted"
         let mut stdout = spawned.stdout_rx;
         let mut output = String::new();
         let mut queries = TerminalQueries::default();
+        let mut embedded_confirmed = false;
         let observed = tokio::time::timeout(Duration::from_secs(/*secs*/ 45), async {
             loop {
                 tokio::select! {
@@ -470,6 +476,10 @@ trust_level = "trusted"
                         let bytes = bytes.context("TUI exited before model request")?;
                         let text = String::from_utf8_lossy(&bytes);
                         output.push_str(&text);
+                        if !embedded_confirmed && output.contains("Continue with an embedded App Server? [y/N]") {
+                            session.writer_sender().send(b"y\r".to_vec()).await?;
+                            embedded_confirmed = true;
+                        }
                         if auth_failure && output.contains("API key login is required") && output.contains("Do not use --force.") {
                             anyhow::bail!("observed required API login rejection");
                         }

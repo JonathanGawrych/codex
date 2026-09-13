@@ -366,6 +366,7 @@ impl PtyCodex {
             .env_remove("TERM_PROGRAM_VERSION")
             .env("OPENAI_API_KEY", "focus-palette-test")
             .env("CODEX_HOME", codex_home.path())
+            .env("CODEX_TUI_TEST_ALLOW_EMBEDDED_APP_SERVER", "1")
             .stdin(stdin)
             .stdout(stdout)
             .stderr(slave)

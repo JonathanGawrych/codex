@@ -271,7 +271,7 @@ async fn daemon_connection_rejects_unprotected_socket_before_handshake() -> colo
 }
 
 #[tokio::test]
-async fn daemon_startup_falls_back_only_for_implicit_endpoints() -> color_eyre::Result<()> {
+async fn daemon_startup_never_falls_back_to_embedded() -> color_eyre::Result<()> {
     for scenario in [
         "missing socket",
         "failed handshake",
@@ -325,21 +325,13 @@ async fn daemon_startup_falls_back_only_for_implicit_endpoints() -> color_eyre::
         )
         .await;
         reject_handshake.abort();
-        if scenario == "explicit endpoint" || scenario == "required daemon" {
-            assert!(result.is_err());
-            if scenario == "required daemon" {
-                let message = result.err().unwrap().to_string();
-                assert!(message.contains("rerun the same command with --no-daemon"));
-                assert!(message.contains("failed to connect to remote app server"));
-            }
-            assert_eq!(target, original_target);
-            assert!(state_db.is_none());
-        } else {
-            let server = AppServerSession::new(result?, target.thread_params_mode());
-            assert!(server.uses_embedded_app_server());
-            assert_eq!(target, AppServerTarget::Embedded);
-            assert!(state_db.is_some());
-            server.shutdown().await?;
+        assert!(result.is_err());
+        assert_eq!(target, original_target);
+        assert!(state_db.is_none());
+        if scenario == "required daemon" {
+            let message = result.err().unwrap().to_string();
+            assert!(message.contains("rerun the same command with --no-daemon"));
+            assert!(message.contains("failed to connect to remote app server"));
         }
     }
     Ok(())
