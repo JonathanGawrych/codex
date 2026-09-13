@@ -2842,6 +2842,17 @@ async fn run_interactive_tui(
     }
 
     #[cfg(any(unix, windows))]
+    if remote.is_none()
+        && codex_app_server_daemon::remote_control_is_enabled()
+            .await
+            .map_err(std::io::Error::other)?
+    {
+        codex_app_server_daemon::run(AppServerLifecycleCommand::Start)
+            .await
+            .map_err(std::io::Error::other)?;
+    }
+
+    #[cfg(any(unix, windows))]
     if interactive.agents_overview && remote.is_none() {
         if !std::io::stdin().is_terminal() {
             return Ok(AppExitInfo::fatal("stdin is not a terminal"));

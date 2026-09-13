@@ -82,6 +82,7 @@ pub(super) async fn run_main_inner(
         launch_loader_overrides.user_config_profile = Some(profile_v2.clone());
     }
     let workload_identity_selected = is_workload_identity_selected();
+    let exec_server_url = std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR);
 
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         let validation_target = app_server_target_for_launch(
@@ -89,7 +90,7 @@ pub(super) async fn run_main_inner(
             /*default_daemon_socket*/ None,
             /*can_reuse_implicit_local_daemon*/ false,
             workload_identity_selected,
-            std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
+            exec_server_url.as_deref(),
         )?;
         let validation_environment_manager =
             if should_load_configured_environments(&loader_overrides, &validation_target) {
@@ -209,8 +210,33 @@ pub(super) async fn run_main_inner(
         default_daemon,
         reuse_implicit_local_daemon,
         workload_identity_selected,
-        std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
+        exec_server_url.as_deref(),
     )?;
+    if matches!(app_server_target, AppServerTarget::Embedded) {
+        let reason = if workload_identity_selected {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::WorkloadIdentity
+        } else if cli.shared.worktree {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ManagedWorktree
+        } else if cli.oss {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::OpenSourceProvider
+        } else if exec_server_url.is_some() {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ExecServer
+        } else if strict_config {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::StrictConfig
+        } else if cli.bypass_hook_trust {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::HookTrustBypass
+        } else if !cli_kv_overrides.is_empty() {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ConfigOverrides
+        } else if cli.config_profile_v2.is_some() {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ConfigProfile
+        } else if !loader_overrides_are_default(&launch_loader_overrides) {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ConfigLoaderOverrides
+        } else {
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ManagedDaemonUnavailable
+        };
+        embedded_app_server_confirmation::confirm_with_startup_draft(&mut startup_draft, reason)
+            .await?;
+    }
     let remote_cwd_override = cli
         .cwd
         .clone()

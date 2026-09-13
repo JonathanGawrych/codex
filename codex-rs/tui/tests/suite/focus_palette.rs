@@ -207,6 +207,7 @@ impl PtyCodex {
             .env("TERM", "xterm-256color")
             .env("OPENAI_API_KEY", "focus-palette-test")
             .env("CODEX_HOME", codex_home.path())
+            .env("CODEX_TUI_TEST_ALLOW_EMBEDDED_APP_SERVER", "1")
             .stdin(stdin)
             .stdout(stdout)
             .stderr(slave)

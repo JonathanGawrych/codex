@@ -140,6 +140,7 @@ mod diff_model;
 mod diff_render;
 mod dynamic_tools;
 mod dynamic_tools_mcp;
+mod embedded_app_server_confirmation;
 mod exec_cell;
 mod exec_command;
 mod external_agent_config_migration;
@@ -518,11 +519,6 @@ async fn start_app_server(
     if let Some(connection) = connection {
         match connection {
             Ok(app_server) => return Ok(app_server),
-            Err(err) if matches!(target, AppServerTarget::LocalDaemon { .. }) => {
-                tracing::debug!(%err, "local daemon connection failed; starting embedded app server");
-                *target = AppServerTarget::Embedded;
-                *state_db = init_state_db_for_app_server_target(&config, target).await?;
-            }
             Err(err) => return Err(err),
         }
     }
@@ -1117,6 +1113,42 @@ async fn run_ratatui_app(
             ),
         )
         .await;
+    let startup_app_server = if matches!(
+        (&startup_app_server, &app_server_target),
+        (Ok(Err(_)), AppServerTarget::LocalDaemon { .. })
+    ) {
+        if let Ok(Err(err)) = &startup_app_server {
+            tracing::debug!(%err, "local daemon connection failed; requesting embedded App Server confirmation");
+        }
+        embedded_app_server_confirmation::confirm_with_startup_pump(
+            &mut startup_draft,
+            &mut tui,
+            embedded_app_server_confirmation::EmbeddedAppServerReason::ManagedDaemonConnectionFailed,
+        )
+        .await?;
+        app_server_target = AppServerTarget::Embedded;
+        state_db = init_state_db_for_app_server_target(&initial_config, &app_server_target).await?;
+        startup_draft
+            .run_until(
+                &mut tui,
+                start_app_server(
+                    &mut app_server_target,
+                    arg0_paths.clone(),
+                    initial_config.clone(),
+                    cli_kv_overrides.clone(),
+                    loader_overrides.clone(),
+                    strict_config,
+                    cloud_config_bundle.clone(),
+                    feedback.clone(),
+                    log_db.clone(),
+                    &mut state_db,
+                    environment_manager.clone(),
+                ),
+            )
+            .await
+    } else {
+        startup_app_server
+    };
     let app_server_session = match startup_app_server {
         Ok(Ok(app_server)) => {
             AppServerSession::new(app_server, app_server_target.thread_params_mode())

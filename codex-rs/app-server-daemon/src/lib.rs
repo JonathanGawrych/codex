@@ -223,6 +223,15 @@ pub async fn ensure_remote_control_ready() -> Result<RemoteControlReadyOutput> {
         .await
 }
 
+/// Returns whether managed app-server starts should enable Remote Control.
+pub async fn remote_control_is_enabled() -> Result<bool> {
+    ensure_supported_platform()?;
+    Ok(Daemon::from_environment()?
+        .load_settings()
+        .await?
+        .remote_control_enabled)
+}
+
 pub async fn enable_remote_control_on_socket(
     socket_path: &Path,
     connect_timeout: Duration,
@@ -1159,6 +1168,32 @@ mod tests {
                 .is_bootstrapped(&DaemonSettings::default())
                 .await
                 .expect("check bootstrap state")
+        );
+    }
+
+    #[tokio::test]
+    async fn daemon_reads_remote_control_enabled_setting() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let settings_file = temp_dir.path().join("settings.json");
+        tokio::fs::write(&settings_file, r#"{"remoteControlEnabled":true}"#)
+            .await
+            .expect("write settings");
+        let daemon = Daemon {
+            socket_path: temp_dir.path().join("app-server-control.sock"),
+            pid_file: temp_dir.path().join("app-server.pid"),
+            update_pid_file: temp_dir.path().join("app-server-updater.pid"),
+            operation_lock_file: temp_dir.path().join("daemon.lock"),
+            settings_file,
+            managed_codex_bin: temp_dir.path().join("codex"),
+            source_install: true,
+        };
+
+        assert!(
+            daemon
+                .load_settings()
+                .await
+                .expect("read daemon settings")
+                .remote_control_enabled
         );
     }
 }
