@@ -1,3 +1,10 @@
+# Customized Codex deployment
+
+- Unless Jonathan explicitly says otherwise, updates to this checkout include building, verifying, and deploying the NAS image.
+- Build on the Mac using `deploy/personas/runtimes/codex/build-transfer-macos.sh`; preserve the previous immutable NAS image for rollback.
+- Wait until all NAS chats are idle, including child threads and turns waiting for approval or input. Recheck through the shared App Server immediately before deployment. Do not interrupt active chats to make the service idle.
+- Gracefully recreate only the Codex service, preserve its state and enrollment, and verify the deployed revision, RPC health, and reconnection afterward. Leave unrelated NAS services unchanged.
+
 # Rust/codex-rs
 
 In the codex-rs folder where the rust code lives:

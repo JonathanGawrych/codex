@@ -37,5 +37,10 @@ The Docker build context excludes `.git`, `.codex`, authentication files,
 environment files, persistent state, workspaces, shared persona data, and Rust
 build output. No `CODEX_HOME` data or credentials are stored in the image.
 
-After the helper succeeds, update the NAS Compose project's Codex image tag and
-recreate only its Codex service. Keep the previous immutable image for rollback.
+Unless Jonathan explicitly says otherwise, source updates include NAS deployment.
+After the helper succeeds, wait until the shared App Server reports all loaded
+threads idle, including child threads and turns waiting for approval or input.
+Recheck immediately before updating the NAS Compose project's Codex image tag and
+gracefully recreating only its Codex service. Do not interrupt active chats to make
+the service idle. Preserve state and enrollment, verify RPC health and reconnection,
+and keep the previous immutable image for rollback.
