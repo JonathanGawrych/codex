@@ -1,0 +1,14 @@
+.git
+.codex
+**/.env
+**/.env.*
+**/.DS_Store
+**/__pycache__
+**/auth.json
+**/node_modules
+**/target
+deploy/personas/images
+deploy/personas/shared
+deploy/personas/state
+deploy/personas/workspaces
+*.log

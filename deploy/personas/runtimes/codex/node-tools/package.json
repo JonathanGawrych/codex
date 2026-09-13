@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "dependencies": {
+    "@automattic/simplenote-mcp": "2.0.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
