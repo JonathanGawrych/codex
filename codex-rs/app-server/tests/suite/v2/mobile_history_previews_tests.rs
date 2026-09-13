@@ -1,10 +1,15 @@
 use super::*;
 use codex_protocol::items::FileChangeItem;
+use codex_protocol::items::ImageGenerationItem as CoreImageGenerationItem;
 use codex_protocol::items::McpToolCallItem;
 use codex_protocol::items::McpToolCallStatus;
 use codex_protocol::protocol::FileChange;
 use codex_protocol::protocol::PatchApplyStatus;
+use codex_utils_absolute_path::test_support::PathBufExt;
 use pretty_assertions::assert_eq;
+
+const TINY_PNG_BASE64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
 
 #[tokio::test]
 async fn mobile_paginated_history_bounds_payloads_and_preserves_full_detail() -> Result<()> {
@@ -59,6 +64,22 @@ async fn mobile_paginated_history_bounds_payloads_and_preserves_full_detail() ->
         "large-turn",
         CoreTurnItem::McpToolCall(mcp),
     ));
+    items.push(paginated_completed_item(
+        thread_id,
+        "large-turn",
+        CoreTurnItem::ImageGeneration(CoreImageGenerationItem {
+            id: "generated-image".to_string(),
+            status: "completed".to_string(),
+            revised_prompt: Some("a tiny image".to_string()),
+            result: TINY_PNG_BASE64.to_string(),
+            saved_path: Some(
+                codex_utils_absolute_path::test_support::test_path_buf(
+                    "/remote/generated-image.png",
+                )
+                .abs(),
+            ),
+        }),
+    ));
     items.push(paginated_turn_completed("large-turn"));
     for item in items {
         let mut record = serde_json::to_value(item)?;
@@ -96,7 +117,7 @@ async fn mobile_paginated_history_bounds_payloads_and_preserves_full_detail() ->
         SortDirection::Asc,
     )
     .await?;
-    assert_eq!(full.data.len(), 4);
+    assert_eq!(full.data.len(), 5);
     assert!(serde_json::to_vec(&full)?.len() > 10_000_000);
     desktop.shutdown_gracefully().await?;
 
@@ -186,6 +207,11 @@ async fn mobile_paginated_history_bounds_payloads_and_preserves_full_detail() ->
             "[Mobile preview truncated. Open this thread in the TUI or desktop for full details.]"
         )));
         assert_eq!(&preview.data[3].item, &turns.data[0].items[3]);
+        let ThreadItem::ImageGeneration(image) = &preview.data[4].item else {
+            panic!("expected generated image preview");
+        };
+        assert_eq!(image.result, TINY_PNG_BASE64);
+        assert_eq!(&preview.data[4].item, &turns.data[0].items[4]);
         mobile.shutdown_gracefully().await?;
     }
     let mut desktop = TestAppServer::builder()

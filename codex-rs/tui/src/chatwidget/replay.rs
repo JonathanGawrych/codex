@@ -201,7 +201,12 @@ impl ChatWidget {
                         Some((summary, content)),
                     );
                 } else {
-                    self.replay_thread_item_with_created_at(item, turn_id.clone(), replay_kind, created_at_ms);
+                    self.replay_thread_item_with_created_at(
+                        item,
+                        turn_id.clone(),
+                        replay_kind,
+                        created_at_ms,
+                    );
                 }
             }
             let status = if hidden_nested_review_turn {
@@ -456,6 +461,7 @@ impl ChatWidget {
                     item.id,
                     item.status,
                     item.revised_prompt,
+                    item.result,
                     item.saved_path,
                 );
             }

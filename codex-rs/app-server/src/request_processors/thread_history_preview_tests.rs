@@ -55,14 +55,13 @@ fn file_preview_budget_is_shared_across_changes_without_removing_paths() {
 }
 
 #[test]
-fn paginated_generated_image_keeps_its_id_with_an_empty_inline_result() {
+fn paginated_generated_image_keeps_small_inline_result() {
     let mut item: ThreadItem = serde_json::from_value(serde_json::json!({
         "type": "imageGeneration", "id": "image", "status": "completed",
         "result": "x".repeat(1_000_000), "revisedPrompt": null, "failure": null,
     }))
     .unwrap();
-    let mut expected = serde_json::to_value(&item).unwrap();
-    expected["result"] = serde_json::json!("");
+    let expected = serde_json::to_value(&item).unwrap();
     redact_thread_history_item(&mut item);
     assert_eq!(item.id(), "image");
     assert_eq!(serde_json::to_value(item).unwrap(), expected);
