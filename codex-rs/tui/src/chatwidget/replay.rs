@@ -267,6 +267,7 @@ impl ChatWidget {
                     item.id,
                     item.status,
                     item.revised_prompt,
+                    item.result,
                     item.saved_path,
                 );
             }

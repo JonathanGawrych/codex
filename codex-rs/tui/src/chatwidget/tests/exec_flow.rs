@@ -1,6 +1,9 @@
 use super::*;
 use pretty_assertions::assert_eq;
 
+const TINY_PNG_BASE64: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=";
+
 #[tokio::test]
 async fn external_writer_snapshot_freezes_active_command_and_mcp_rows() {
     let mut rendered = Vec::new();
@@ -1171,6 +1174,7 @@ async fn image_generation_call_adds_history_cell() {
         "call-image-generation",
         "completed",
         Some("A tiny blue square".into()),
+        String::new(),
         Some(test_path_buf("/tmp/ig-1.png").abs()),
     );
 
@@ -1188,6 +1192,7 @@ async fn image_generation_call_adds_history_cell() {
         "call-image-generation-failed",
         "failed",
         Some("A tiny blue square".into()),
+        String::new(),
         /*saved_path*/ None,
     );
 
@@ -1197,6 +1202,42 @@ async fn image_generation_call_adds_history_cell() {
         "failed_image_generation_call_history_snapshot",
         lines_to_single_string(&cells[0])
     );
+}
+
+#[tokio::test]
+async fn remote_image_generation_result_uses_local_file_link() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let generated_images = chat
+        .local_settings
+        .codex_home
+        .join("generated_images")
+        .join("unknown-thread");
+
+    handle_image_generation_end(
+        &mut chat,
+        "call-remote-image",
+        "completed",
+        Some("A tiny blue square".into()),
+        TINY_PNG_BASE64.to_string(),
+        Some(test_path_buf("/remote/ig-1.png").abs()),
+    );
+
+    let cells = drain_insert_history(&mut rx);
+    assert_eq!(cells.len(), 1, "expected a single history cell");
+    let local_path = std::fs::read_dir(&generated_images)
+        .expect("read generated image directory")
+        .next()
+        .expect("generated image entry")
+        .expect("read generated image entry")
+        .path();
+    let local_url = url::Url::from_file_path(&local_path)
+        .expect("local image path should convert to file URL")
+        .to_string();
+    let combined = lines_to_single_string(&cells[0]).replace(
+        &local_url,
+        "file://$CODEX_HOME/generated_images/$THREAD/generated.png",
+    );
+    assert_chatwidget_snapshot!("remote_image_generation_uses_local_file_link", combined);
 }
 
 #[tokio::test]

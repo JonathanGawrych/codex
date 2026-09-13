@@ -32,9 +32,25 @@ impl ChatWidget {
         call_id: String,
         status: String,
         revised_prompt: Option<String>,
+        result: String,
         saved_path: Option<AbsolutePathBuf>,
     ) {
         self.flush_answer_stream_with_separator();
+        let saved_path = match super::generated_images::local_generated_image_path(
+            &self.local_settings.codex_home,
+            self.thread_id,
+            &call_id,
+            &result,
+            saved_path.clone(),
+        ) {
+            Ok(path) => path,
+            Err(error) => {
+                self.add_to_history(history_cell::new_warning_event(format!(
+                    "Generated image could not be copied to this computer: {error}"
+                )));
+                saved_path
+            }
+        };
         self.add_to_history(history_cell::new_image_generation_call(
             call_id,
             &status,

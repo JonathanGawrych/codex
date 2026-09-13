@@ -347,6 +347,7 @@ mod goal_status;
 use self::goal_status::GoalStatusState;
 #[cfg(test)]
 use self::goal_status::goal_status_indicator_from_app_goal;
+mod generated_images;
 mod goal_menu;
 mod ide_context;
 use self::ide_context::IdeContextState;

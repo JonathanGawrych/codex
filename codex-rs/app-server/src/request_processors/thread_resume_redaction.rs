@@ -3,6 +3,8 @@ use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::Turn;
 use serde_json::Value as JsonValue;
 
+use super::mobile_image_preview::generated_image_preview;
+
 // Mobile history previews are response-only. Desktop/TUI clients can retrieve
 // full detail through the same history APIs; stored history is never changed.
 const REDACTED_PAYLOAD: &str = "[redacted]";
@@ -18,10 +20,9 @@ pub(super) fn should_redact_thread_history_payloads(client_name: Option<&str>) -
 
 pub(super) fn redact_thread_history_payloads(turns: &mut [Turn]) {
     for turn in turns {
-        turn.items.retain_mut(|item| {
+        for item in &mut turn.items {
             redact_thread_history_item(item);
-            !matches!(item, ThreadItem::ImageGeneration(_))
-        });
+        }
     }
 }
 
@@ -55,10 +56,8 @@ pub(super) fn redact_thread_history_item(item: &mut ThreadItem) {
         } => {
             truncate_preview(output, PREVIEW_BYTES);
         }
-        // Keep the item and its ID in item pages so pagination can still
-        // advance even when a page contains only generated images.
         ThreadItem::ImageGeneration(image) => {
-            image.result.clear();
+            image.result = generated_image_preview(&image.result);
             if let Some(prompt) = &mut image.revised_prompt {
                 truncate_preview(prompt, PREVIEW_BYTES);
             }
@@ -124,7 +123,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn redacts_mcp_success_result_and_removes_image_generation() {
+    fn redacts_mcp_success_result_and_keeps_generated_image_preview() {
         let mut thread = test_thread(vec![
             ThreadItem::AgentMessage {
                 id: "agent-1".to_string(),
@@ -175,40 +174,48 @@ mod tests {
 
         redact_thread_history_payloads(&mut thread.turns);
 
-        assert_eq!(thread.turns[0].items.len(), 2);
         assert_eq!(
-            thread.turns[0].items[0],
-            ThreadItem::AgentMessage {
-                id: "agent-1".to_string(),
-                text: "kept".to_string(),
-                phase: None,
-                memory_citation: None,
-                delivery: None,
-                questions: None,
-            }
-        );
-        assert_eq!(
-            thread.turns[0].items[1],
-            ThreadItem::McpToolCall {
-                id: "mcp-1".to_string(),
-                server: "docs".to_string(),
-                tool: "lookup".to_string(),
-                status: McpToolCallStatus::Completed,
-                arguments: JsonValue::String(REDACTED_PAYLOAD.to_string()),
-                app_context: Some(McpToolCallAppContext {
-                    connector_id: "calendar".to_string(),
-                    link_id: Some("link_calendar".to_string()),
-                    resource_uri: Some("ui://widget/lookup.html".to_string()),
-                    app_name: Some("Calendar".to_string()),
-                    action_name: Some("lookup".to_string()),
+            thread.turns[0].items,
+            vec![
+                ThreadItem::AgentMessage {
+                    id: "agent-1".to_string(),
+                    text: "kept".to_string(),
+                    phase: None,
+                    memory_citation: None,
+                    delivery: None,
+                    questions: None,
+                },
+                ThreadItem::McpToolCall {
+                    id: "mcp-1".to_string(),
+                    server: "docs".to_string(),
+                    tool: "lookup".to_string(),
+                    status: McpToolCallStatus::Completed,
+                    arguments: JsonValue::String(REDACTED_PAYLOAD.to_string()),
+                    app_context: Some(McpToolCallAppContext {
+                        connector_id: "calendar".to_string(),
+                        link_id: Some("link_calendar".to_string()),
+                        resource_uri: Some("ui://widget/lookup.html".to_string()),
+                        app_name: Some("Calendar".to_string()),
+                        action_name: Some("lookup".to_string()),
+                    }),
+                    mcp_app_resource_uri: Some("ui://widget/lookup.html".to_string()),
+                    plugin_id: Some("sample@test".to_string()),
+                    read_only_hint: None,
+                    result: Some(Box::new(redacted_mcp_tool_call_result())),
+                    error: None,
+                    duration_ms: Some(8),
+                },
+                ThreadItem::ImageGeneration(ImageGenerationItem {
+                    id: "ig-1".to_string(),
+                    status: "completed".to_string(),
+                    revised_prompt: Some("revised".to_string()),
+                    result: "base64-result".to_string(),
+                    transparent_background: None,
+                    failure: None,
+                    saved_path: Some(test_path_buf("/tmp/ig-1.png").abs()),
+                    imagegen_request_id: None,
                 }),
-                mcp_app_resource_uri: Some("ui://widget/lookup.html".to_string()),
-                plugin_id: Some("sample@test".to_string()),
-                read_only_hint: None,
-                result: Some(Box::new(redacted_mcp_tool_call_result())),
-                error: None,
-                duration_ms: Some(8),
-            }
+            ]
         );
     }
 

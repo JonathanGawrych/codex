@@ -722,6 +722,7 @@ pub(super) fn handle_image_generation_end(
     call_id: impl Into<String>,
     status: impl Into<String>,
     revised_prompt: Option<String>,
+    result: String,
     saved_path: Option<AbsolutePathBuf>,
 ) {
     chat.handle_server_notification(
@@ -733,7 +734,7 @@ pub(super) fn handle_image_generation_end(
                 id: call_id.into(),
                 status: status.into(),
                 revised_prompt,
-                result: String::new(),
+                result,
                 transparent_background: None,
                 failure: None,
                 saved_path,

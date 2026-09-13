@@ -2253,11 +2253,13 @@ async fn thread_resume_redacts_payloads_for_chatgpt_remote_clients() -> Result<(
             assert_eq!(result.meta, None);
             assert_eq!(error, &None);
             assert!(
-                !remote_turn
-                    .items
-                    .iter()
-                    .any(|item| matches!(item, ThreadItem::ImageGeneration(_))),
-                "remote resume should drop image generation items for {client_name}"
+                remote_turn.items.iter().any(|item| matches!(
+                    item,
+                    ThreadItem::ImageGeneration(item)
+                        if item.result == "base64-image-result"
+                            && item.revised_prompt.as_deref() == Some("secret revised prompt")
+                )),
+                "remote resume should keep bounded image generation items for {client_name}"
             );
         }
     }
