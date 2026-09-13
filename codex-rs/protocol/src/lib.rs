@@ -23,6 +23,7 @@ pub mod capabilities;
 pub mod config_types;
 pub mod dynamic_tools;
 mod environment;
+mod environment_settings;
 pub mod error;
 pub mod exec_output;
 pub mod items;

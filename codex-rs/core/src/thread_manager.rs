@@ -1927,13 +1927,6 @@ impl ThreadManagerState {
             reserved_thread_id,
         } = options;
         let session_source = session_source.unwrap_or_else(|| self.session_source.clone());
-        let environments = environments.unwrap_or_else(|| {
-            default_thread_environment_selections(
-                self.environment_manager.as_ref(),
-                &config.cwd,
-                &config.workspace_roots,
-            )
-        });
         let is_resumed_thread = matches!(&initial_history, InitialHistory::Resumed(_));
         if reserved_thread_id.is_some() && matches!(&initial_history, InitialHistory::Resumed(_)) {
             return Err(CodexErr::InvalidRequest(
@@ -1961,6 +1954,21 @@ impl ThreadManagerState {
                 threads.remove(&resumed.conversation_id);
             }
         }
+        let environments = match environments {
+            Some(environments) => Some(environments),
+            None => crate::environment_resume::restore_thread_environments(
+                &initial_history,
+                &config,
+                &self.environment_manager,
+            )?,
+        };
+        let environments = environments.unwrap_or_else(|| {
+            default_thread_environment_selections(
+                self.environment_manager.as_ref(),
+                &config.cwd,
+                &config.workspace_roots,
+            )
+        });
         let (
             user_instructions,
             inherited_exec_policy,

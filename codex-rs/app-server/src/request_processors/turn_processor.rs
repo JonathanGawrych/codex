@@ -13,6 +13,7 @@ use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::protocol::TurnSettingsUpdate;
 use codex_protocol::protocol::TurnSettingsUpdateOutcome;
 use codex_skills::system_cache_root_dir;
+use codex_utils_path_uri::PathUri;
 
 use crate::image_url::REMOTE_IMAGE_URL_ERROR;
 use crate::image_url::is_remote_image_url;
@@ -734,7 +735,7 @@ impl TurnRequestProcessor {
 
         let snapshot = thread.config_snapshot().await;
         let current_cwd = snapshot.cwd().clone();
-        let legacy_fallback_cwd = cwd.unwrap_or_else(|| current_cwd.clone());
+        let legacy_fallback_cwd = cwd.as_ref().unwrap_or(&current_cwd).clone();
         let workspace_roots = match workspace_roots {
             Some(workspace_roots) => workspace_roots,
             None => {
@@ -742,11 +743,11 @@ impl TurnRequestProcessor {
                 // the old cwd root while preserving any additional roots. Deduplicate because the
                 // new cwd may already be present as an additional root.
                 let mut retargeted_workspace_roots = Vec::new();
-                for root in snapshot.workspace_roots {
-                    let root = if root == current_cwd {
+                for root in &snapshot.workspace_roots {
+                    let root = if *root == current_cwd {
                         legacy_fallback_cwd.clone()
                     } else {
-                        root
+                        root.clone()
                     };
                     if !retargeted_workspace_roots.contains(&root) {
                         retargeted_workspace_roots.push(root);
@@ -755,9 +756,18 @@ impl TurnRequestProcessor {
                 retargeted_workspace_roots
             }
         };
-        let environment_selections = self
-            .thread_manager
-            .default_environment_selections(&legacy_fallback_cwd, &workspace_roots);
+        // Legacy cwd/root fields describe the primary workspace. Rebuilding defaults here
+        // would overwrite secondary executors' native paths on every TUI turn.
+        let mut environment_selections = snapshot.environments.environments;
+        if let Some(primary) = environment_selections.first_mut() {
+            if let Some(cwd) = cwd {
+                primary.cwd = PathUri::from_abs_path(&cwd);
+            }
+            if workspace_roots != snapshot.workspace_roots {
+                primary.workspace_roots =
+                    workspace_roots.iter().map(PathUri::from_abs_path).collect();
+            }
+        }
         Some(TurnEnvironmentSelections::new(
             legacy_fallback_cwd,
             environment_selections,

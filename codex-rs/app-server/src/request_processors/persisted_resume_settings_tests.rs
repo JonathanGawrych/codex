@@ -38,6 +38,7 @@ fn settings_item(
                 permission_profile: PermissionProfile::read_only(),
                 active_permission_profile,
                 cwd: cwd(),
+                environments: None,
                 reasoning_effort: None,
                 reasoning_summary: None,
                 personality: None,

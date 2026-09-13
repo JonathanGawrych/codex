@@ -64,6 +64,7 @@ mod context_manager;
 mod current_time;
 mod cyber_access_program;
 mod elicitation;
+mod environment_resume;
 mod environment_selection;
 pub mod exec;
 pub mod exec_env;
