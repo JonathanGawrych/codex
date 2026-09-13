@@ -40,6 +40,7 @@ fn settings_item(
                 active_permission_profile,
                 cwd: cwd(),
                 runtime_workspace_roots: None,
+                environments: None,
                 reasoning_effort: None,
                 reasoning_summary: None,
                 personality: None,

@@ -100,6 +100,7 @@ pub use crate::approvals::NetworkPolicyRuleAction;
 pub use crate::environment::EnvironmentConfig;
 pub use crate::environment::EnvironmentConfigState;
 pub use crate::environment::has_full_access;
+pub use crate::environment_settings::ThreadEnvironmentSettings;
 pub use crate::legacy_events::HasLegacyEvent;
 pub use crate::permissions::FileSystemAccessMode;
 pub use crate::permissions::FileSystemPath;
@@ -2226,6 +2227,11 @@ pub struct ThreadSettingsSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
+    /// Per-executor paths. `None` denotes histories written before selections were saved;
+    /// `Some([])` deliberately selects no environments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub environments: Option<Vec<ThreadEnvironmentSettings>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffortConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]

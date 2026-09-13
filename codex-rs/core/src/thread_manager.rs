@@ -2092,13 +2092,6 @@ impl ThreadManagerState {
                 }
             });
         thread_extension_init.insert(isolation);
-        let environments = environments.unwrap_or_else(|| {
-            default_thread_environment_selections(
-                self.environment_manager.as_ref(),
-                &config.cwd,
-                &config.workspace_roots,
-            )
-        });
         let is_resumed_thread = matches!(&initial_history, InitialHistory::Resumed(_));
         if reserved_thread_id.is_some() && matches!(&initial_history, InitialHistory::Resumed(_)) {
             return Err(CodexErr::InvalidRequest(
@@ -2140,6 +2133,21 @@ impl ThreadManagerState {
                 threads.remove(&resumed.conversation_id);
             }
         }
+        let environments = match environments {
+            Some(environments) => Some(environments),
+            None => crate::environment_resume::restore_thread_environments(
+                &initial_history,
+                &config,
+                &self.environment_manager,
+            )?,
+        };
+        let environments = environments.unwrap_or_else(|| {
+            default_thread_environment_selections(
+                self.environment_manager.as_ref(),
+                &config.cwd,
+                &config.workspace_roots,
+            )
+        });
         let agent_control = match (&self.agent_control_factory, agent_control) {
             (Some(factory), AgentControlInit::Local(local)) => {
                 let thread_id = match &initial_history {

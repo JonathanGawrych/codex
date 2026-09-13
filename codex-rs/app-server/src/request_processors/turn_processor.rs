@@ -12,11 +12,10 @@ use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ImageReference as CoreImageReference;
-use codex_protocol::protocol::AdditionalContextEntry as CoreAdditionalContextEntry;
-use codex_protocol::protocol::AdditionalContextKind as CoreAdditionalContextKind;
 use codex_protocol::protocol::TurnSettingsUpdate;
 use codex_protocol::protocol::TurnSettingsUpdateOutcome;
 use codex_skills::system_cache_root_dir;
+use codex_utils_path_uri::PathUri;
 
 use crate::image_url::REMOTE_IMAGE_URL_ERROR;
 use crate::image_url::is_remote_image_url;
@@ -103,29 +102,6 @@ pub(crate) struct TurnRequestProcessor {
     thread_watch_manager: ThreadWatchManager,
     skills_watcher: Arc<SkillsWatcher>,
     turn_cost_worker: Option<crate::turn_cost_worker::TurnCostWorkerHandle>,
-}
-
-fn map_additional_context(
-    additional_context: Option<HashMap<String, AdditionalContextEntry>>,
-) -> BTreeMap<String, CoreAdditionalContextEntry> {
-    additional_context
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(key, entry)| {
-            (
-                key,
-                CoreAdditionalContextEntry {
-                    value: entry.value,
-                    kind: match entry.kind {
-                        AdditionalContextKind::Untrusted => CoreAdditionalContextKind::Untrusted,
-                        AdditionalContextKind::Application => {
-                            CoreAdditionalContextKind::Application
-                        }
-                    },
-                },
-            )
-        })
-        .collect()
 }
 
 #[derive(Default)]
@@ -776,27 +752,48 @@ impl TurnRequestProcessor {
             };
         }
 
-        // Default-environment updates retain the task's fallback roots, not its active roots.
-        let snapshot = thread.thread_settings_snapshot().await;
-        let current_cwd = snapshot.cwd;
+        // Top-level fields update the primary workspace while secondary executors retain
+        // their native paths. Runtime roots remain separate from profile-derived roots.
+        let settings = thread.thread_settings_snapshot().await;
+        let snapshot = thread.config_snapshot().await;
+        let current_cwd = settings.cwd;
         let legacy_fallback_cwd = cwd.unwrap_or_else(|| current_cwd.clone());
-        let workspace_roots = match workspace_roots {
-            Some(workspace_roots) => workspace_roots,
+        let runtime_workspace_roots = match &workspace_roots {
+            Some(workspace_roots) => workspace_roots.clone(),
             None => path_utils::replace_path_and_deduplicate(
-                snapshot.runtime_workspace_roots.unwrap_or_default(),
+                settings.runtime_workspace_roots.unwrap_or_default(),
                 current_cwd.as_path(),
                 legacy_fallback_cwd.clone(),
             ),
         };
-        let environment_selections = self
-            .thread_manager
-            .default_environment_selections(&legacy_fallback_cwd, &workspace_roots);
+        let mut environment_selections = snapshot.environments.environments;
+        if let Some(primary) = environment_selections.first_mut() {
+            let previous_cwd = primary.cwd.clone();
+            primary.cwd = PathUri::from_abs_path(&legacy_fallback_cwd);
+            primary.workspace_roots = match workspace_roots {
+                Some(roots) => roots.iter().map(PathUri::from_abs_path).collect(),
+                None => {
+                    let mut roots = Vec::new();
+                    for root in &primary.workspace_roots {
+                        let root = if *root == previous_cwd {
+                            primary.cwd.clone()
+                        } else {
+                            root.clone()
+                        };
+                        if !roots.contains(&root) {
+                            roots.push(root);
+                        }
+                    }
+                    roots
+                }
+            };
+        }
         ThreadEnvironmentOverride {
             environments: Some(TurnEnvironmentSelections::new(
                 legacy_fallback_cwd,
                 environment_selections,
             )),
-            runtime_workspace_roots: Some(workspace_roots),
+            runtime_workspace_roots: Some(runtime_workspace_roots),
         }
     }
 

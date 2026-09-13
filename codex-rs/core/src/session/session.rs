@@ -323,6 +323,7 @@ impl SessionConfiguration {
             active_permission_profile: self.active_permission_profile(),
             cwd: self.legacy_fallback_cwd.clone(),
             runtime_workspace_roots: Some(self.runtime_workspace_roots.clone()),
+            environments: Some(environment_selections.iter().map(Into::into).collect()),
             reasoning_effort: self.step_settings.collaboration_mode.reasoning_effort(),
             reasoning_summary: self.step_settings.reasoning_summary,
             personality: self.step_settings.personality,
