@@ -1,5 +1,6 @@
 //! MCP tool-call, inventory, and output history cells.
 
+use super::images::ImageHistoryCell;
 use super::*;
 
 use codex_protocol::mcp::is_node_repl_backed_server;
@@ -18,18 +19,6 @@ use result::McpToolResult;
 #[path = "mcp_tests.rs"]
 mod tests;
 
-#[derive(Debug)]
-struct McpImageOutputCell;
-
-impl HistoryCell for McpImageOutputCell {
-    fn display_lines(&self, _width: u16) -> Vec<Line<'static>> {
-        vec!["tool result (image output)".into()]
-    }
-
-    fn raw_lines(&self) -> Vec<Line<'static>> {
-        vec![Line::from("tool result (image output)")]
-    }
-}
 fn mcp_auth_status_label(status: McpAuthStatus) -> &'static str {
     match status {
         McpAuthStatus::Unknown => "Unknown",
@@ -95,12 +84,19 @@ impl McpToolCallCell {
         duration: Duration,
         result: Result<codex_protocol::mcp::CallToolResult, String>,
     ) -> Option<Box<dyn HistoryCell>> {
-        let result = result.map(|result| McpToolResult::new(result, self.result_kind()));
+        let mut result = result.map(|result| McpToolResult::new(result, self.result_kind()));
         let image_cell = result
-            .as_ref()
+            .as_mut()
             .ok()
-            .filter(|result| result.has_image)
-            .map(|_| Box::new(McpImageOutputCell) as Box<dyn HistoryCell>);
+            .and_then(|result| result.image.take())
+            .map(|preview| {
+                Box::new(ImageHistoryCell {
+                    text: PlainHistoryCell {
+                        lines: vec![Line::from("tool result (image output)")],
+                    },
+                    preview: Some(preview),
+                }) as Box<dyn HistoryCell>
+            });
         self.duration = Some(duration);
         self.result = Some(result);
         image_cell

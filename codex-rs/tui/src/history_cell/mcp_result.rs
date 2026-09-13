@@ -4,16 +4,13 @@
 //! block once with the MCP model, then retain only what history rendering actually displays.
 
 use crate::exec_cell::TOOL_CALL_MAX_LINES;
+use crate::terminal_images::ImagePreview;
 use crate::text_formatting::format_and_truncate_tool_result;
-use base64::Engine;
 use codex_protocol::mcp::CallToolResult;
-use image::DynamicImage;
-use image::ImageReader;
 use rmcp::model::ContentBlock;
 use rmcp::model::ResourceContents;
 use serde::Deserialize;
 use std::borrow::Cow;
-use std::io::Cursor;
 use tracing::error;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -26,7 +23,7 @@ pub(super) enum McpResultKind {
 pub(super) struct McpToolResult {
     pub(super) content: Vec<McpContentBlock>,
     pub(super) is_error: bool,
-    pub(super) has_image: bool,
+    pub(super) image: Option<ImagePreview>,
 }
 
 #[derive(Debug)]
@@ -50,7 +47,7 @@ impl McpToolResult {
     /// or unknown blocks. Every block is projected, but image decoding stops at the first fully
     /// valid image.
     pub(super) fn new(result: CallToolResult, kind: McpResultKind) -> Self {
-        let mut has_image = false;
+        let mut preview = None;
         let content = result
             .content
             .into_iter()
@@ -68,10 +65,12 @@ impl McpToolResult {
                 let display = match parsed {
                     Ok(ContentBlock::Text(text)) => McpContentDisplay::Text(text.text),
                     Ok(ContentBlock::Image(image)) => {
-                        // Keep the marker's existing full-decode validity check, and stop
-                        // decoding after the first valid image, just as the old search did.
-                        if !has_image {
-                            has_image = decode_mcp_image(&image.data).is_some();
+                        // Retain at most one decoded thumbnail per result.
+                        if preview.is_none() {
+                            match ImagePreview::from_base64(&image.data) {
+                                Ok(image) => preview = Some(image),
+                                Err(error) => error!(%error, "Image preview decoding failed"),
+                            }
                         }
                         McpContentDisplay::Summary("<image content>".into())
                     }
@@ -103,7 +102,7 @@ impl McpToolResult {
         Self {
             content,
             is_error: result.is_error.unwrap_or(false),
-            has_image,
+            image: preview,
         }
     }
 }
@@ -134,38 +133,4 @@ impl McpContentBlock {
             McpContentDisplay::Summary(summary) => summary.to_string(),
         }
     }
-}
-
-/// Fully decodes an MCP image before exposing the separate image-output marker.
-///
-/// A header-only check would accept images whose decoder rejects their pixel data. Preserve the
-/// existing behavior for invalid base64, unknown formats, corrupt images, and data URLs.
-fn decode_mcp_image(data: &str) -> Option<DynamicImage> {
-    let base64_data = if let Some(data_url) = data.strip_prefix("data:") {
-        data_url.split_once(',')?.1
-    } else {
-        data
-    };
-    let raw_data = base64::engine::general_purpose::STANDARD
-        .decode(base64_data)
-        .map_err(|e| {
-            error!("Failed to decode image data: {e}");
-            e
-        })
-        .ok()?;
-    let reader = ImageReader::new(Cursor::new(raw_data))
-        .with_guessed_format()
-        .map_err(|e| {
-            error!("Failed to guess image format: {e}");
-            e
-        })
-        .ok()?;
-
-    reader
-        .decode()
-        .map_err(|e| {
-            error!("Image decoding failed: {e}");
-            e
-        })
-        .ok()
 }

@@ -1528,7 +1528,7 @@ fn completed_mcp_tool_call_image_after_text_returns_extra_cell() {
         .expect("expected image cell");
 
     let rendered = render_lines(&extra_cell.display_lines(/*width*/ 80));
-    assert_eq!(rendered, vec!["tool result (image output)"]);
+    assert_eq!(rendered, vec!["tool result (image output)", "▀"]);
 }
 
 #[test]
@@ -1559,7 +1559,7 @@ fn completed_mcp_tool_call_accepts_data_url_image_blocks() {
         .expect("expected image cell");
 
     let rendered = render_lines(&extra_cell.display_lines(/*width*/ 80));
-    assert_eq!(rendered, vec!["tool result (image output)"]);
+    assert_eq!(rendered, vec!["tool result (image output)", "▀"]);
 }
 
 #[test]
@@ -1589,7 +1589,7 @@ fn completed_mcp_tool_call_skips_invalid_image_blocks() {
         .expect("expected image cell");
 
     let rendered = render_lines(&extra_cell.display_lines(/*width*/ 80));
-    assert_eq!(rendered, vec!["tool result (image output)"]);
+    assert_eq!(rendered, vec!["tool result (image output)", "▀"]);
 }
 
 #[test]

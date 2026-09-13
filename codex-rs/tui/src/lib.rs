@@ -210,6 +210,7 @@ mod style;
 mod task_mentions;
 mod temporary_structured_request;
 mod terminal_hyperlinks;
+mod terminal_images;
 mod terminal_palette;
 mod terminal_probe;
 mod terminal_title;

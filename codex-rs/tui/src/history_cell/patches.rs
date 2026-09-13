@@ -1,6 +1,8 @@
 //! Patch summaries and image-tool transcript helpers.
 
+use super::images::ImageHistoryCell;
 use super::*;
+use crate::terminal_images::ImagePreview;
 use codex_utils_path_uri::LegacyAppPathString;
 
 #[derive(Debug)]
@@ -77,7 +79,7 @@ pub(crate) fn new_image_generation_call(
     status: &str,
     revised_prompt: Option<String>,
     saved_path: Option<AbsolutePathBuf>,
-) -> PlainHistoryCell {
+) -> ImageHistoryCell {
     let detail = revised_prompt.unwrap_or(call_id);
     let heading = if status == "failed" {
         vec!["✗ ".red().bold(), "Image generation failed".bold()].into()
@@ -85,12 +87,22 @@ pub(crate) fn new_image_generation_call(
         vec!["• ".dim(), "Generated Image:".bold()].into()
     };
     let mut lines: Vec<Line<'static>> = vec![heading, vec!["  └ ".dim(), detail.dim()].into()];
+    let mut preview = None;
     if let Some(saved_path) = saved_path {
+        if saved_path.is_file() {
+            match ImagePreview::from_path(saved_path.as_path()) {
+                Ok(image) => preview = Some(image),
+                Err(error) => lines.push(format!("  Preview unavailable: {error}").dim().into()),
+            }
+        }
         let saved_path = Url::from_file_path(saved_path.as_path())
             .map(|url| url.to_string())
             .unwrap_or_else(|_| saved_path.display().to_string());
         lines.push(vec!["  └ ".dim(), "Saved to: ".dim(), saved_path.into()].into());
     }
 
-    PlainHistoryCell { lines }
+    ImageHistoryCell {
+        text: PlainHistoryCell { lines },
+        preview,
+    }
 }

@@ -320,6 +320,12 @@ fn write_history_line<W: Write>(
         ))
     )?;
     queue!(writer, Clear(ClearType::UntilNewLine))?;
+    if let Some(image) = &line.image
+        && line.width() <= wrap_width
+        && crate::terminal_images::supports_kitty(&codex_terminal_detection::terminal_info())
+    {
+        return image.write_kitty(writer);
+    }
     // Merge line-level style into each span so that ANSI colors reflect
     // line styles (e.g., blockquotes with green fg).
     let merged_spans: Vec<Span> = line
@@ -334,6 +340,7 @@ fn write_history_line<W: Write>(
     let merged_line = HyperlinkLine {
         line: Line::from(merged_spans),
         hyperlinks: line.hyperlinks.clone(),
+        image: None,
     };
     let decorated = decorate_spans(&merged_line);
     write_spans(writer, decorated.iter())

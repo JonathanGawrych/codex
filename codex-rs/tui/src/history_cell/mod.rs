@@ -106,6 +106,7 @@ mod approvals;
 mod base;
 mod exec;
 mod hook_cell;
+mod images;
 mod markdown_render_cache;
 mod mcp;
 mod messages;

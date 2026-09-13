@@ -1,0 +1,48 @@
+---
+source: tui/src/terminal_images/tests.rs
+expression: preview.lines(80)
+---
+[
+    HyperlinkLine {
+        line: Line::from_iter([
+            Span::from("▀").fg(Color::Rgb(117, 115, 180)).bg(Color::Rgb(117, 123, 180)),
+            Span::from("▀").fg(Color::Rgb(132, 115, 180)).bg(Color::Rgb(132, 123, 180)),
+            Span::from("▀").fg(Color::Rgb(123, 115, 180)).bg(Color::Rgb(123, 123, 180)),
+            Span::from("▀").fg(Color::Rgb(134, 115, 180)).bg(Color::Rgb(134, 123, 180)),
+        ]),
+        hyperlinks: [],
+        image: ImageRow {
+            preview: ImagePreview(
+                (
+                    40,
+                    40,
+                ),
+            ),
+            row: 0,
+            rows: 2,
+            columns: 4,
+            column: 0,
+        },
+    },
+    HyperlinkLine {
+        line: Line::from_iter([
+            Span::from("▀").fg(Color::Rgb(117, 127, 180)).bg(Color::Rgb(117, 131, 180)),
+            Span::from("▀").fg(Color::Rgb(132, 128, 180)).bg(Color::Rgb(132, 131, 180)),
+            Span::from("▀").fg(Color::Rgb(123, 128, 180)).bg(Color::Rgb(123, 131, 180)),
+            Span::from("▀").fg(Color::Rgb(134, 128, 180)).bg(Color::Rgb(134, 131, 180)),
+        ]),
+        hyperlinks: [],
+        image: ImageRow {
+            preview: ImagePreview(
+                (
+                    40,
+                    40,
+                ),
+            ),
+            row: 1,
+            rows: 2,
+            columns: 4,
+            column: 0,
+        },
+    },
+]
