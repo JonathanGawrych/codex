@@ -108,6 +108,7 @@ mod base;
 mod dynamic;
 mod exec;
 mod hook_cell;
+mod images;
 mod markdown_render_cache;
 mod mcp;
 mod messages;
@@ -120,8 +121,8 @@ mod separators;
 mod session;
 mod spoken_artifacts;
 mod startup_warnings;
-mod warnings;
 mod timestamped;
+mod warnings;
 
 pub(crate) use activity_details::ActivityDetails;
 pub(crate) use activity_preview::ActivityDisclosure;
@@ -142,14 +143,14 @@ pub(crate) use search::*;
 pub(crate) use separators::*;
 pub(crate) use session::*;
 pub(crate) use startup_warnings::StartupWarningsCell;
+pub(crate) use timestamped::with_created_at;
+pub(crate) use timestamped::with_created_at_arc;
 pub(crate) use warnings::WarningEntry;
 pub(crate) use warnings::WarningHistoryCell;
 pub(crate) use warnings::WarningId;
 pub(crate) use warnings::WarningKey;
 pub(crate) use warnings::warning_count;
 pub(crate) use warnings::warning_entries;
-pub(crate) use timestamped::with_created_at;
-pub(crate) use timestamped::with_created_at_arc;
 
 #[cfg(test)]
 mod tests;

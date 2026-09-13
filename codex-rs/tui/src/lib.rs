@@ -131,8 +131,8 @@ mod experimental_features;
 mod markdown_copy;
 mod permission_discovery;
 mod pets;
-mod security_setup;
 mod prompt_timestamp;
+mod security_setup;
 mod worktree_browser;
 pub use custom_terminal::Terminal;
 mod assistant_directives;
@@ -143,8 +143,8 @@ mod diff_model;
 mod diff_render;
 mod dynamic_tools;
 mod dynamic_tools_mcp;
-mod empty_state_animation;
 mod embedded_app_server_confirmation;
+mod empty_state_animation;
 mod exec_cell;
 mod exec_command;
 mod external_agent_config_migration;
@@ -218,6 +218,7 @@ mod system_motion;
 mod task_mentions;
 mod temporary_structured_request;
 mod terminal_hyperlinks;
+mod terminal_images;
 mod terminal_palette;
 mod terminal_probe;
 mod terminal_title;
@@ -239,9 +240,9 @@ mod ui_consts;
 mod unarchive_prompt;
 pub(crate) mod update_action;
 mod worktree_startup;
-pub use update_action::DaemonUpdateSource;
 pub use source_update::complete_source_update;
 pub use source_update::install_source_update;
+pub use update_action::DaemonUpdateSource;
 pub use update_action::UpdateAction;
 #[cfg(not(debug_assertions))]
 pub use update_action::get_update_action;
@@ -1205,7 +1206,13 @@ async fn run_ratatui_app(
         .await;
     let startup_app_server = if matches!(
         (&startup_app_server, &app_server_target),
-        (Ok(Err(_)), AppServerTarget::LocalDaemon { allow_embedded_fallback: true, .. })
+        (
+            Ok(Err(_)),
+            AppServerTarget::LocalDaemon {
+                allow_embedded_fallback: true,
+                ..
+            }
+        )
     ) {
         if let Ok(Err(err)) = &startup_app_server {
             tracing::debug!(%err, "local daemon connection failed; requesting embedded App Server confirmation");

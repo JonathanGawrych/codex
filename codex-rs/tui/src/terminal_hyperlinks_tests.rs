@@ -18,6 +18,7 @@ fn oversized_destinations_remain_plain_text() {
         source: None,
         line: Line::from("visible"),
         hyperlinks: vec![TerminalHyperlink::web(/*columns*/ 0..7, oversized)],
+        image: None,
     };
     let mut buf = Buffer::with_lines(["visible"]);
     let expected = buf.clone();

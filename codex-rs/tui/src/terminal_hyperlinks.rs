@@ -143,6 +143,7 @@ pub(crate) struct HyperlinkLine {
     pub(crate) line: Line<'static>,
     pub(crate) hyperlinks: Vec<TerminalHyperlink>,
     pub(crate) source: Option<LogicalLineSource>,
+    pub(crate) image: Option<crate::terminal_images::ImageRow>,
 }
 
 // Source provenance is shared layout metadata; omit it from visual diagnostics to avoid
@@ -153,13 +154,14 @@ impl std::fmt::Debug for HyperlinkLine {
             .debug_struct("HyperlinkLine")
             .field("line", &self.line)
             .field("hyperlinks", &self.hyperlinks)
+            .field("image", &self.image)
             .finish()
     }
 }
 
 impl PartialEq for HyperlinkLine {
     fn eq(&self, other: &Self) -> bool {
-        self.line == other.line && self.hyperlinks == other.hyperlinks
+        self.line == other.line && self.hyperlinks == other.hyperlinks && self.image == other.image
     }
 }
 
@@ -180,6 +182,7 @@ impl HyperlinkLine {
             line,
             hyperlinks: Vec::new(),
             source: None,
+            image: None,
         }
     }
 
@@ -271,6 +274,9 @@ pub(crate) fn prefix_hyperlink_lines(
             spans.push(prefix);
             spans.extend(line.line.spans);
             line.line = Line::from(spans).style(line.line.style);
+            if let Some(image) = &mut line.image {
+                image.column = image.column.saturating_add(shift as u16);
+            }
             for hyperlink in &mut line.hyperlinks {
                 hyperlink.columns = hyperlink.columns.start + shift..hyperlink.columns.end + shift;
             }
@@ -426,6 +432,9 @@ pub(crate) fn remap_wrapped_line(
     wrapped: Vec<Line<'static>>,
 ) -> Vec<HyperlinkLine> {
     let mut out = plain_hyperlink_lines(wrapped);
+    if out.len() == 1 && out[0].width() == source.width() {
+        out[0].image = source.image.clone();
+    }
     if source.hyperlinks.is_empty() && source.source.is_none() {
         return out;
     }
@@ -936,6 +945,7 @@ mod tests {
         let line = HyperlinkLine {
             source: None,
             line: Line::from(destination),
+            image: None,
             hyperlinks: vec![TerminalHyperlink::web(
                 /*columns*/ 0..usize::from(destination.cell_width()),
                 destination.to_string(),
@@ -1002,6 +1012,7 @@ mod tests {
                 HyperlinkLine {
                     source: None,
                     line: Line::from("  alpha 😀here"),
+                    image: None,
                     hyperlinks: vec![TerminalHyperlink::web(
                         /*columns*/ 10..14,
                         "https://example.com/first".to_string(),
@@ -1010,6 +1021,7 @@ mod tests {
                 HyperlinkLine {
                     source: None,
                     line: Line::from("    middle there end"),
+                    image: None,
                     hyperlinks: vec![TerminalHyperlink::web(
                         /*columns*/ 11..16,
                         "https://example.com/second".to_string(),
@@ -1272,6 +1284,7 @@ mod tests {
         let line = HyperlinkLine {
             source: None,
             line: Line::from("view"),
+            image: None,
             hyperlinks: vec![link],
         };
 

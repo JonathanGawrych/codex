@@ -234,6 +234,11 @@ impl McpToolCallCell {
                 "    ".into(),
             ));
         }
+        if let Some(Ok(result)) = &self.result
+            && let Some(preview) = &result.image
+        {
+            lines.extend(preview.lines(width));
+        }
         lines
     }
 

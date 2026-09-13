@@ -131,6 +131,7 @@ fn supporting_terminals_render_only_the_styled_label_and_keep_its_target() {
                 render(markdown, /*width*/ 80, display),
                 vec![HyperlinkLine {
                     source: None,
+                    image: None,
                     line: Line::from(label),
                     hyperlinks: vec![TerminalHyperlink::web(
                         0..label_width,

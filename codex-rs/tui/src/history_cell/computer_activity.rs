@@ -77,7 +77,7 @@ impl ComputerActivityCell {
 }
 
 fn has_image(call: &McpToolCallCell) -> bool {
-    matches!(&call.result, Some(Ok(result)) if result.has_image)
+    matches!(&call.result, Some(Ok(result)) if result.image.is_some())
 }
 
 /// Keep previews on one physical row, including grapheme clusters and narrow terminals.
