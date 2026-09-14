@@ -440,38 +440,40 @@ pub(super) async fn unload_thread_without_subscribers(
 
     tokio::spawn(async move {
         match wait_for_thread_shutdown(&thread).await {
-            ThreadShutdownResult::Complete => {
-                // A delayed unload can finish after thread/revert replaces this runtime under
-                // the same thread ID. Only the runtime that scheduled this unload may remove it.
-                if thread_manager
-                    .remove_thread_if_matches(&thread_id, &thread)
-                    .await
-                    .is_none()
-                {
-                    info!("thread {thread_id} was replaced or removed before teardown finalized");
-                    pending_thread_unloads.lock().await.remove(&thread_id);
-                    return;
-                }
-                thread_watch_manager
-                    .remove_thread(&thread_id.to_string())
-                    .await;
-                let notification = ThreadClosedNotification {
-                    thread_id: thread_id.to_string(),
-                };
-                outgoing
-                    .send_server_notification(ServerNotification::ThreadClosed(notification))
-                    .await;
-                pending_thread_unloads.lock().await.remove(&thread_id);
-            }
+            ThreadShutdownResult::Complete => {}
             ThreadShutdownResult::SubmitFailed => {
                 pending_thread_unloads.lock().await.remove(&thread_id);
                 warn!("failed to submit Shutdown to thread {thread_id}");
+                return;
             }
             ThreadShutdownResult::TimedOut => {
-                pending_thread_unloads.lock().await.remove(&thread_id);
-                warn!("thread {thread_id} shutdown timed out; leaving thread loaded");
+                warn!(%thread_id, "thread shutdown timed out; waiting for termination before unloading");
+                // Timing out the waiter does not cancel Core's shutdown. Keep resumes blocked
+                // until the worker exits and its runtime can be removed from ThreadManager.
+                thread.wait_until_terminated().await;
             }
         }
+        // A delayed unload can finish after thread/revert replaces this runtime under
+        // the same thread ID. Only the runtime that scheduled this unload may remove it.
+        if thread_manager
+            .remove_thread_if_matches(&thread_id, &thread)
+            .await
+            .is_none()
+        {
+            info!("thread {thread_id} was replaced or removed before teardown finalized");
+            pending_thread_unloads.lock().await.remove(&thread_id);
+            return;
+        }
+        thread_watch_manager
+            .remove_thread(&thread_id.to_string())
+            .await;
+        let notification = ThreadClosedNotification {
+            thread_id: thread_id.to_string(),
+        };
+        outgoing
+            .send_server_notification(ServerNotification::ThreadClosed(notification))
+            .await;
+        pending_thread_unloads.lock().await.remove(&thread_id);
     });
 }
 
