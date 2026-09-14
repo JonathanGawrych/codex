@@ -106,6 +106,7 @@ mod config_manager_service;
 mod connection_cleanup;
 mod connection_rpc_gate;
 mod current_time;
+mod current_turn_history;
 mod dynamic_tools;
 mod effective_plugin_change;
 mod error_code;

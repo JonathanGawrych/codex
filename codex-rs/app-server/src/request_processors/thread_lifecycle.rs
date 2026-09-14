@@ -253,6 +253,7 @@ pub(super) async fn ensure_listener_task_running(
             &conversation,
             watch_registration,
             thread_settings_baseline,
+            config_snapshot.history_mode,
         );
         let Some(listener_command_tx) = thread_state.listener_command_tx() else {
             tracing::warn!(
@@ -879,9 +880,23 @@ fn merge_active_turn_into_page(
     mut active_turn: Turn,
     params: &codex_app_server_protocol::ThreadResumeInitialTurnsPageParams,
 ) {
+    let items_view = params.items_view.unwrap_or(TurnItemsView::Summary);
+    if items_view == TurnItemsView::Summary && active_turn.status == TurnStatus::InProgress {
+        // Paginated summaries select the first user message and an explicit final answer
+        // until the turn ends, matching thread-store's first/final message indexes.
+        active_turn.items.retain(|item| {
+            !matches!(
+                item,
+                ThreadItem::AgentMessage {
+                    phase: Some(codex_protocol::models::MessagePhase::Commentary) | None,
+                    ..
+                }
+            )
+        });
+    }
     super::thread_processor::apply_thread_turns_items_view(
         std::slice::from_mut(&mut active_turn),
-        params.items_view.unwrap_or(TurnItemsView::Summary),
+        items_view,
     );
     let sort_direction = params.sort_direction.unwrap_or(SortDirection::Desc);
     let page_size = super::thread_processor::thread_turns_page_size(params.limit);
