@@ -734,6 +734,12 @@ impl ServerHandler for TestToolServer {
                     "echo": echo,
                     "env": env_snapshot.get(env_name),
                 });
+                if std::env::var_os("MCP_TEST_EXIT_AFTER_CALL").is_some() {
+                    tokio::spawn(async {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        std::process::exit(0);
+                    });
+                }
 
                 Ok(Self::structured_result(structured_content))
             }
