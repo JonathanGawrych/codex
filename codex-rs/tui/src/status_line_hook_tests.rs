@@ -94,6 +94,26 @@ async fn pace_distinguishes_overspending_from_spare_allowance() {
 }
 
 #[tokio::test]
+async fn pace_uses_the_larger_elapsed_or_remaining_factor() {
+    let mut output = String::new();
+    for (label, used, remaining) in [
+        ("remaining highlights overspending", 84.0, 331_200),
+        ("elapsed highlights overspending", 15.0, 565_200),
+        ("elapsed highlights spare allowance", 25.0, 302_400),
+        ("remaining highlights spare allowance", 94.0, 120),
+        ("weekly allowance before reset", 68.0, 17_640),
+    ] {
+        let mut payload = payload();
+        payload["rate_limits"] = json!({
+            "seven_day": {"used_percentage": used, "resets_at": NOW + remaining},
+        });
+        let line = render_hook(payload).await;
+        output.push_str(&format!("{label}: {line}\n"));
+    }
+    insta::assert_snapshot!(output);
+}
+
+#[tokio::test]
 async fn pace_switches_to_multiplier_at_100_percent_deviation() {
     let mut output = String::new();
     for (label, used, remaining) in [

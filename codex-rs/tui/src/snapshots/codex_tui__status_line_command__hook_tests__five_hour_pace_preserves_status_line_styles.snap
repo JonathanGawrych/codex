@@ -7,7 +7,7 @@ Line::from_iter([
     Span::from("ctx: ").fg(Color::Rgb(153, 153, 153)),
     Span::from("▓░░░░░░░░░ 11%").fg(Color::Rgb(47, 134, 255)),
     Span::from(" | 5h: ").fg(Color::Rgb(153, 153, 153)),
-    Span::from("94% ▼9.00x").fg(Color::Rgb(249, 31, 31)),
+    Span::from("94% ▽9.00x").fg(Color::Rgb(249, 31, 31)),
     Span::from(" ").fg(Color::Rgb(153, 153, 153)),
     Span::from("(2m)").gray(),
     Span::from(" | 7d: --").fg(Color::Rgb(153, 153, 153)),
