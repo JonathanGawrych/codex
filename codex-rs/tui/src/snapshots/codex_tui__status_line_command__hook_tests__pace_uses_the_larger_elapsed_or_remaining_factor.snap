@@ -1,0 +1,9 @@
+---
+source: tui/src/status_line_hook_tests.rs
+expression: output
+---
+remaining highlights overspending: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 84% △3.42x (3d20h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+elapsed highlights overspending: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 15% ▲2.29x (6d13h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+elapsed highlights spare allowance: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 25% ▼2.00x (3d12h) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+remaining highlights spare allowance: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 94% ▽302.40x (2m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
+weekly allowance before reset: external$ ctx: ▓░░░░░░░░░ 11% | 5h: -- | 7d: 68% ▽10.97x (4h54m) | gpt-5.6-sol xhigh ⚡ · Pragmatic
