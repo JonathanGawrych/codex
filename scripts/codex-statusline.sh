@@ -27,9 +27,11 @@ fmt_remaining() {
   else echo "${m}m"; fi
 }
 
-# Above budget, compare usage with elapsed time. Below budget, compare remaining
-# allowance with remaining time. Return a signed deviation from the normal rate:
-# zero is on pace, positive is overspending, negative is spare allowance.
+# Compare both the elapsed and remaining views. Above budget, use the larger
+# overspending factor. Below budget, use the smaller spare-allowance factor so
+# the display does not claim more headroom than both views support. Return a
+# signed deviation from the normal rate and the view that selected it: zero is
+# on pace, positive needs a slower rate, and negative allows a faster rate.
 # Keep fractional usage and seconds until rounding the final percentage.
 calc_pace() {
   local used=$1 reset=$2 window=$3
@@ -40,9 +42,21 @@ calc_pace() {
     '([$used, 0] | max) as $usage |
      ($window - $remaining) as $elapsed |
      if $usage * $window > 100 * $elapsed then
-       if $elapsed > 0 then ($usage * $window / $elapsed - 100 | round) else empty end
+       (if $elapsed > 0 then $usage * $window / (100 * $elapsed) else null end) as $elapsed_factor |
+       (if $usage < 100 then 100 * $remaining / ((100 - $usage) * $window) else null end) as $remaining_factor |
+       ([$elapsed_factor, $remaining_factor] | map(select(. != null)) | max) as $factor |
+       if $factor == null then empty
+       else [(100 * ($factor - 1) | round),
+             (if $remaining_factor != null and $remaining_factor == $factor then "remaining" else "elapsed" end)] | @tsv
+       end
      else
-       (100 - (100 - $usage) * $window / $remaining | round)
+       (if $usage > 0 then 100 * $elapsed / ($usage * $window) else null end) as $elapsed_factor |
+       ((100 - $usage) * $window / (100 * $remaining)) as $remaining_factor |
+       ([$elapsed_factor, $remaining_factor] | map(select(. != null)) | min) as $factor |
+       if $factor == null then empty
+       else [(-100 * ($factor - 1) | round),
+             (if $remaining_factor == $factor then "remaining" else "elapsed" end)] | @tsv
+       end
      end'
 }
 
@@ -140,13 +154,18 @@ rate_color() {
   usage_color "$val"
 }
 
-# ▲ needs a slower rate, ▼ allows a faster rate, and • is on pace.
+# Solid triangles identify the elapsed view; hollow triangles identify the
+# remaining view. Up needs a slower rate, down allows a faster rate, and • is
+# on pace.
 # Display deviation through 99%, then the total rate as a multiplier: 100% is 2.00x.
 fmt_pace() {
   if [[ -z "$1" ]]; then echo "--"; return; fi
-  local delta=$1 marker="•"
-  if (( delta > 0 )); then marker="▲"
-  elif (( delta < 0 )); then marker="▼"; fi
+  local delta=$1 basis=$2 marker="•"
+  if (( delta > 0 )); then
+    if [[ "$basis" == "remaining" ]]; then marker="△"; else marker="▲"; fi
+  elif (( delta < 0 )); then
+    if [[ "$basis" == "remaining" ]]; then marker="▽"; else marker="▼"; fi
+  fi
   local percent=${delta#-}
   if (( percent >= 100 )); then
     printf '%s%d.%02dx\n' "$marker" "$((1 + percent / 100))" "$((percent % 100))"
@@ -166,13 +185,13 @@ rate_segment() {
     return
   fi
 
-  local pace="" color rate_fmt pace_fmt
+  local pace="" pace_basis="" color rate_fmt pace_fmt
   if [[ -n "$reset_at" ]]; then
-    pace=$(calc_pace "$used" "$reset_at" "$window_seconds")
+    IFS=$'\t' read -r pace pace_basis < <(calc_pace "$used" "$reset_at" "$window_seconds")
   fi
   color=$(rate_color "$used" "$pace")
   rate_fmt=$(fmt_rate "$used")
-  pace_fmt=$(fmt_pace "$pace")
+  pace_fmt=$(fmt_pace "$pace" "$pace_basis")
   printf "%b | %s: %b%s %s%b" "$GRAY" "$label" "$color" "$rate_fmt" "$pace_fmt" "$GRAY"
   if [[ -n "$reset_at" ]]; then
     printf " %b(%s)%b" "$WHITE" "$(fmt_remaining "$reset_at")" "$GRAY"

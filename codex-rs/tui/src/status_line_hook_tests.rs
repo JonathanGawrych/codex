@@ -94,6 +94,25 @@ async fn pace_distinguishes_overspending_from_spare_allowance() {
 }
 
 #[tokio::test]
+async fn pace_uses_the_more_conservative_elapsed_or_remaining_view() {
+    let mut output = String::new();
+    for (label, used, remaining) in [
+        ("remaining limits overspending", 84.0, 331_200),
+        ("elapsed limits early overspending", 15.0, 565_200),
+        ("remaining limits spare allowance", 25.0, 302_400),
+        ("elapsed limits spare allowance", 94.0, 120),
+    ] {
+        let mut payload = payload();
+        payload["rate_limits"] = json!({
+            "seven_day": {"used_percentage": used, "resets_at": NOW + remaining},
+        });
+        let line = render_hook(payload).await;
+        output.push_str(&format!("{label}: {line}\n"));
+    }
+    insta::assert_snapshot!(output);
+}
+
+#[tokio::test]
 async fn pace_switches_to_multiplier_at_100_percent_deviation() {
     let mut output = String::new();
     for (label, used, remaining) in [
@@ -103,12 +122,12 @@ async fn pace_switches_to_multiplier_at_100_percent_deviation() {
         ("over 225 percent", 65.0, 14_400),
         ("over rounds to 99 percent", 39.88, 14_400),
         ("over rounds to 100 percent", 39.92, 14_400),
-        ("under 99 percent", 60.2, 3_600),
-        ("under 100 percent", 60.0, 3_600),
-        ("under 101 percent", 59.8, 3_600),
-        ("under 225 percent", 35.0, 3_600),
-        ("under rounds to 99 percent", 60.12, 3_600),
-        ("under rounds to 100 percent", 60.08, 3_600),
+        ("under 99 percent", 40.2, 3_600),
+        ("under 100 percent", 40.0, 3_600),
+        ("under 101 percent", 39.8, 3_600),
+        ("under 225 percent", 24.615_384_615, 3_600),
+        ("under rounds to 99 percent", 40.104_266_88, 3_600),
+        ("under rounds to 100 percent", 40.096_230_58, 3_600),
     ] {
         let mut payload = payload();
         payload["rate_limits"] = json!({
