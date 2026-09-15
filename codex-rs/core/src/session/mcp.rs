@@ -206,6 +206,9 @@ impl Session {
             {
                 self.mark_mcp_runtime_dirty();
             }
+            if self.services.mcp_runtime.has_closed_connections().await {
+                self.mark_mcp_runtime_dirty();
+            }
 
             if !self.mcp_refresh.claim() {
                 return;

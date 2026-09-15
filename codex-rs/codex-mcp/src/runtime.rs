@@ -336,6 +336,15 @@ impl McpRuntime {
         self.reconnect_pending.store(true, Ordering::Release);
     }
 
+    /// Returns whether an initialized server connection has closed since publication.
+    pub async fn has_closed_connections(&self) -> bool {
+        self.current
+            .load_full()
+            .connections
+            .has_closed_ready_connections()
+            .await
+    }
+
     /// Captures the latest published configuration and live client handles.
     pub async fn current_binding(&self) -> Option<Arc<McpBinding>> {
         self.current_binding_with_requirements(&[], &HashSet::new())

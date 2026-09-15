@@ -47,6 +47,7 @@ use codex_protocol::protocol::ThreadSource as CoreThreadSource;
 use codex_utils_path_uri::PathUri;
 use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;
 use core_test_support::responses;
+use core_test_support::stdio_server_bin;
 use futures::SinkExt;
 use pretty_assertions::assert_eq;
 use rmcp::handler::server::ServerHandler;
@@ -162,6 +163,128 @@ async fn mcp_server_tool_call_returns_tool_result() -> Result<()> {
 
     mcp_server_handle.abort();
     let _ = mcp_server_handle.await;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mcp_server_tool_call_restarts_a_closed_stdio_connection() -> Result<()> {
+    let responses_server = responses::start_mock_server().await;
+    let codex_home = TempDir::new()?;
+    let command = toml::Value::String(stdio_server_bin()?);
+    MockResponsesConfig::new(&responses_server.uri())
+        .with_extra_config(&format!(
+            "[mcp_servers.restarting]\ncommand = {command}\nenv = {{ MCP_TEST_EXIT_AFTER_CALL = \"1\" }}\nrequired = true\n"
+        ))
+        .write(codex_home.path())?;
+    std::fs::write(
+        codex_home.path().join("environments.toml"),
+        "default = \"local\"\ninclude_local = true\n",
+    )?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
+    let request_id = mcp
+        .send_thread_start_request(ThreadStartParams::default())
+        .await?;
+    let ThreadStartResponse { thread, .. } =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
+
+    let response: McpServerToolCallResponse = mcp
+        .request(|request_id| ClientRequest::McpServerToolCall {
+            request_id,
+            params: McpServerToolCallParams {
+                thread_id: thread.id.clone(),
+                server: "restarting".to_string(),
+                tool: "echo".to_string(),
+                arguments: Some(json!({"message": "first process"})),
+                meta: None,
+            },
+        })
+        .await?;
+    assert_eq!(
+        response
+            .structured_content
+            .and_then(|content| content.get("echo").cloned()),
+        Some(json!("ECHOING: first process"))
+    );
+    tokio::time::sleep(Duration::from_millis(250)).await;
+
+    let response_mock = responses::mount_sse_sequence(
+        &responses_server,
+        vec![
+            responses::sse(vec![
+                responses::ev_response_created("resp-restarted-mcp-call"),
+                responses::ev_function_call_with_namespace(
+                    "restarted-mcp-call",
+                    "mcp__restarting",
+                    "echo",
+                    &json!({"message": "replacement process"}).to_string(),
+                ),
+                responses::ev_completed("resp-restarted-mcp-call"),
+            ]),
+            responses::sse(vec![
+                responses::ev_response_created("resp-restarted-mcp-done"),
+                responses::ev_assistant_message("msg-restarted-mcp-done", "Done"),
+                responses::ev_completed("resp-restarted-mcp-done"),
+            ]),
+        ],
+    )
+    .await;
+    let request_id = mcp
+        .send_turn_start_request(TurnStartParams {
+            thread_id: thread.id.clone(),
+            input: vec![V2UserInput::Text {
+                text: "Use the restarted MCP server".to_string(),
+                text_elements: Vec::new(),
+            }],
+            ..Default::default()
+        })
+        .await?;
+    let _: TurnStartResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(request_id)).await??;
+    timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_notification_message("turn/completed"),
+    )
+    .await??;
+    let requests = response_mock.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[0]
+            .tool_by_name("mcp__restarting", "echo")
+            .is_some()
+    );
+    assert!(
+        requests[1]
+            .function_call_output("restarted-mcp-call")
+            .get("output")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|output| output.contains("ECHOING: replacement process"))
+    );
+    tokio::time::sleep(Duration::from_millis(250)).await;
+
+    let response: McpServerToolCallResponse = mcp
+        .request(|request_id| ClientRequest::McpServerToolCall {
+            request_id,
+            params: McpServerToolCallParams {
+                thread_id: thread.id,
+                server: "restarting".to_string(),
+                tool: "echo".to_string(),
+                arguments: Some(json!({"message": "direct replacement"})),
+                meta: None,
+            },
+        })
+        .await?;
+    assert_eq!(
+        response
+            .structured_content
+            .and_then(|content| content.get("echo").cloned()),
+        Some(json!("ECHOING: direct replacement"))
+    );
 
     Ok(())
 }

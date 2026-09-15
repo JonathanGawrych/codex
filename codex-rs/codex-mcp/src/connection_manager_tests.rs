@@ -5687,6 +5687,7 @@ async fn reconciliation_replaces_closed_connections() -> anyhow::Result<()> {
     });
 
     assert!(!client.is_closed().await);
+    assert!(!previous.has_closed_ready_connections().await);
     disconnect.cancel();
     tokio::time::timeout(Duration::from_secs(2), async {
         while !client.is_closed().await {
@@ -5695,10 +5696,12 @@ async fn reconciliation_replaces_closed_connections() -> anyhow::Result<()> {
     })
     .await
     .expect("closed MCP transport should be detected");
+    assert!(previous.has_closed_ready_connections().await);
 
     let reconciled = reconcile_reusable_server(&previous, config, runtime_context).await;
 
     assert!(!previous.shares_test_connection_with(&reconciled, "docs"));
+    assert!(!reconciled.has_closed_ready_connections().await);
     Ok(())
 }
 
