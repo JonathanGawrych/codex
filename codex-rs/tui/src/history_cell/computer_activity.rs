@@ -20,10 +20,25 @@ impl Default for ComputerActivityCell {
 }
 
 impl ComputerActivityCell {
+    fn append_latest_image(&self, lines: &mut Vec<HyperlinkLine>, width: u16) {
+        if let Some(preview) = self.group.calls.iter().rev().find_map(|call| {
+            call.result
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .and_then(|result| result.image.as_ref())
+        }) {
+            lines.extend(preview.lines(width));
+        }
+    }
+
     fn detailed_hyperlink_lines(&self, width: u16, mode: HistoryRenderMode) -> Vec<HyperlinkLine> {
         let mut lines = Vec::new();
         for (index, call) in self.group.calls.iter().enumerate() {
-            lines.extend(call.transcript_hyperlink_lines(width));
+            lines.extend(
+                call.transcript_hyperlink_lines(width)
+                    .into_iter()
+                    .filter(|line| mode == HistoryRenderMode::Rich || line.image.is_none()),
+            );
             lines.extend(self.group.details.lines_after(index + 1, width, mode));
         }
         lines
@@ -119,6 +134,12 @@ fn error_preview(call: &McpToolCallCell) -> Option<&str> {
 }
 
 impl HistoryCell for ComputerActivityCell {
+    fn display_hyperlink_lines(&self, width: u16) -> Vec<HyperlinkLine> {
+        let mut lines = plain_hyperlink_lines(self.display_lines(width));
+        self.append_latest_image(&mut lines, width);
+        lines
+    }
+
     fn append_reasoning(&mut self, cell: Box<dyn HistoryCell>) -> Result<(), Box<dyn HistoryCell>> {
         if self.group.calls.is_empty() {
             Err(cell)
@@ -140,7 +161,9 @@ impl HistoryCell for ComputerActivityCell {
                 *prefix = "  └ ".dim();
             }
         }
-        plain_hyperlink_lines(lines)
+        let mut lines = plain_hyperlink_lines(lines);
+        self.append_latest_image(&mut lines, width);
+        lines
     }
 
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {

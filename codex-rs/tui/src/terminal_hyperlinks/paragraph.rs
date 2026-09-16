@@ -45,5 +45,6 @@ impl Widget for HyperlinkParagraph<'_> {
             .scroll((self.scroll_rows, 0))
             .render(area, buf);
         mark_buffer_hyperlinks(buf, area, self.lines, usize::from(self.scroll_rows));
+        crate::terminal_images::frame::capture_images(self.lines, area, buf, self.scroll_rows);
     }
 }

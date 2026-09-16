@@ -154,6 +154,7 @@ where
     pub last_known_cursor_pos: Position,
     /// Count of visible history rows rendered above the viewport in inline mode.
     visible_history_rows: u16,
+    image_rows: Vec<crate::terminal_images::frame::PlacedImage>,
     #[cfg(test)]
     screen_size_override: Option<Size>,
 }
@@ -222,6 +223,7 @@ where
         Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
+            image_rows: Vec::new(),
             current: 0,
             hidden_cursor: false,
             last_cursor_style: None,
@@ -429,6 +431,7 @@ where
         if screen_size != self.last_known_screen_size {
             self.resize(screen_size)?;
         }
+        let image_capture = crate::terminal_images::frame::FrameImageCapture::begin();
         let mut frame = self.get_frame();
 
         render_callback(&mut frame).map_err(Into::into)?;
@@ -438,6 +441,24 @@ where
         // Buffer. Thus, we're taking the important data out of the Frame and dropping it.
         let cursor_position = frame.cursor_position;
         let cursor_style = frame.cursor_style;
+        let images = image_capture.finish(self.current_buffer());
+        let mut image_protocol = crate::terminal_images::TerminalImageWriter::new(
+            &codex_terminal_detection::terminal_info(),
+        );
+        let mut image_redraw_rows = std::collections::BTreeSet::new();
+        if !matches!(
+            image_protocol,
+            crate::terminal_images::TerminalImageWriter::Unsupported
+        ) {
+            let [first, second] = &mut self.buffers;
+            let (old, new) = if self.current == 0 {
+                (second, first)
+            } else {
+                (first, second)
+            };
+            image_redraw_rows =
+                crate::terminal_images::frame::prepare_rows(&self.image_rows, &images, old, new);
+        }
 
         // Not every terminal or multiplexer hides intermediate cursor moves inside a
         // synchronized update, especially when the frame spans multiple writes.
@@ -445,7 +466,20 @@ where
         if !updates.is_empty() && !self.hidden_cursor {
             self.hide_cursor()?;
         }
+        crate::terminal_images::frame::clear_rows(
+            &mut self.backend,
+            &image_protocol,
+            &image_redraw_rows,
+            self.viewport_area.left(),
+        )?;
         self.flush_updates(updates)?;
+        crate::terminal_images::frame::write_rows(
+            &mut self.backend,
+            &mut image_protocol,
+            &images,
+            &image_redraw_rows,
+        )?;
+        self.image_rows = images;
 
         match cursor_position {
             None if !self.hidden_cursor => self.hide_cursor()?,
@@ -512,6 +546,18 @@ where
             return Ok(());
         }
         self.clear_after_position(self.viewport_area.as_position())
+    }
+
+    /// Remove graphics scrolled into the inline viewport while retaining images above it.
+    pub(crate) fn clear_inline_image_rows(&mut self) -> io::Result<()> {
+        if crate::terminal_images::supports_kitty(&codex_terminal_detection::terminal_info()) {
+            crate::terminal_images::delete_kitty_images_in_rows(
+                &mut self.backend,
+                self.viewport_area.top()..self.viewport_area.bottom(),
+            )?;
+            self.image_rows.clear();
+        }
+        Ok(())
     }
 
     /// Clear from `position` through the end of the visible screen and force a full redraw.

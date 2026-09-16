@@ -95,6 +95,7 @@ impl ToolOutputPreview {
             line: bounded,
             hyperlinks,
             source,
+            image: None,
         };
         let wrapped = word_wrap_line_with_source(
             &bounded.line,

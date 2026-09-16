@@ -133,7 +133,12 @@ fn computer_activity_prioritizes_errors_and_images_without_reordering() {
     assert!(transcript.contains("Full tool documentation"));
     assert_eq!(
         cell.raw_lines(),
-        plain_lines(cell.transcript_lines(u16::MAX))
+        plain_lines(visible_lines(
+            cell.transcript_hyperlink_lines(u16::MAX)
+                .into_iter()
+                .filter(|line| line.image.is_none())
+                .collect()
+        ))
     );
     assert!(
         cell.display_lines(/*width*/ 24)
@@ -172,6 +177,49 @@ fn computer_activity_completed_and_transport_errors_keep_full_details() {
             .map(McpToolCallCell::success)
             .collect::<Vec<_>>(),
         vec![Some(true), Some(true), Some(false)]
+    );
+}
+
+#[test]
+fn computer_activity_shows_latest_image_and_keeps_both_in_expanded_history() {
+    let mut cell = ComputerActivityCell::default();
+    let mut previews = Vec::new();
+    for (id, color) in [("first", [255, 0, 0]), ("second", [0, 0, 255])] {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(/*width*/ 20, /*height*/ 20, image::Rgb(color))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let encoded = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            bytes.into_inner(),
+        );
+        let mut response = result(id).unwrap();
+        response
+            .content
+            .push(json!({"type": "image", "mimeType": "image/png", "data": encoded}));
+        cell.complete(call(id, id), Duration::ZERO, Ok(response));
+        previews.push(
+            crate::terminal_images::ImagePreview::from_base64(&encoded)
+                .unwrap()
+                .lines(/*width*/ 40)[0]
+                .image
+                .clone(),
+        );
+    }
+    let compact_images = cell
+        .compact_hyperlink_lines(/*width*/ 40)
+        .into_iter()
+        .filter_map(|line| line.image)
+        .collect::<Vec<_>>();
+    let expanded_images = cell
+        .transcript_hyperlink_lines(/*width*/ 40)
+        .into_iter()
+        .filter_map(|line| line.image)
+        .collect::<Vec<_>>();
+    assert_eq!(compact_images, vec![previews[1].clone().unwrap()]);
+    assert_eq!(
+        expanded_images,
+        previews.into_iter().map(Option::unwrap).collect::<Vec<_>>()
     );
 }
 

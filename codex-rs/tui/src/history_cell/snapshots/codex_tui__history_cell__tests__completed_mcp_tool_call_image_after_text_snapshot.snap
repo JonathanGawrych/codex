@@ -5,3 +5,4 @@ expression: rendered
 • Called image.generate({"prompt":"tiny image"})
   └ Here is the image:
     Returned image
+▀

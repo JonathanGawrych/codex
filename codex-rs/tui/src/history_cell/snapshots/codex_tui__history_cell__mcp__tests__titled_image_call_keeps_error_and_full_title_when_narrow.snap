@@ -5,3 +5,4 @@ expression: "lines.iter().map(ToString::to_string).collect::<Vec<_>>().join(\"\\
 • Inspect a very long screensho…
   └ Screenshot partially failed
     Returned image
+▀

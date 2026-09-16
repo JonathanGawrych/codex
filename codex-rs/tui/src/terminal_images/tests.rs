@@ -112,6 +112,58 @@ fn row_transmission_is_quiet_cursor_neutral_and_contains_only_a_png_strip() {
 }
 
 #[test]
+fn iterm_rows_use_independent_inline_strips_without_internal_seams() {
+    let preview = ImagePreview::from_bytes(&create_png(/*width*/ 40, /*height*/ 40)).unwrap();
+    let lines = preview.lines(/*width*/ 4);
+    let first = lines[0].image.as_ref().unwrap();
+    let second = lines[1].image.as_ref().unwrap();
+
+    let info = TerminalInfo {
+        name: TerminalName::Iterm2,
+        term_program: Some("iTerm.app".into()),
+        version: Some("3.7.1".into()),
+        term: None,
+        multiplexer: None,
+    };
+    let mut writer = TerminalImageWriter::new(&info);
+    let mut first_output = Vec::new();
+    assert!(writer.write_image_row(&mut first_output, first).unwrap());
+    let mut second_output = Vec::new();
+    assert!(writer.write_image_row(&mut second_output, second).unwrap());
+    let first_output = String::from_utf8(first_output).unwrap();
+    let second_output = String::from_utf8(second_output).unwrap();
+    let header = "\x1b]1337;File=inline=1;width=4;height=1;preserveAspectRatio=0:";
+
+    assert!(first_output.starts_with(header));
+    assert!(first_output.ends_with('\x07'));
+    assert_eq!(
+        image::load_from_memory(
+            &STANDARD
+                .decode(&first_output.as_bytes()[header.len()..first_output.len() - 1])
+                .unwrap()
+        )
+        .unwrap()
+        .to_rgba8()
+        .dimensions(),
+        (40, 20)
+    );
+    assert!(second_output.starts_with(header));
+    assert_ne!(first_output, second_output);
+    assert!(!first_output.contains("\x1b_G"));
+    assert!(!first_output.contains('\n'));
+}
+
+#[test]
+fn deleting_viewport_rows_uses_one_based_kitty_coordinates() {
+    let mut output = Vec::new();
+    delete_kitty_images_in_rows(&mut output, 3..6).unwrap();
+    assert_eq!(
+        String::from_utf8(output).unwrap(),
+        "\x1b_Ga=d,d=Y,y=4;\x1b\\\x1b_Ga=d,d=Y,y=5;\x1b\\\x1b_Ga=d,d=Y,y=6;\x1b\\"
+    );
+}
+
+#[test]
 fn history_wrapping_and_tail_clipping_keep_independent_image_rows() {
     let preview = ImagePreview::from_bytes(&create_png(/*width*/ 160, /*height*/ 160)).unwrap();
     let lines = prefix_hyperlink_lines(preview.lines(/*width*/ 20), "  ".into(), "  ".into());
@@ -225,11 +277,14 @@ fn graphics_require_a_supported_terminal_outside_a_multiplexer() {
         term: None,
         multiplexer: None,
     };
-    assert!(supports_kitty(&info));
+    assert!(supports_iterm_inline(&info));
+    assert!(!supports_kitty(&info));
     info.version = Some("3.5.0".into());
     assert!(!supports_kitty(&info));
+    assert!(!supports_iterm_inline(&info));
     info.name = TerminalName::Kitty;
     assert!(supports_kitty(&info));
+    assert!(!supports_iterm_inline(&info));
     info.multiplexer = Some(Multiplexer::Tmux { version: None });
     assert!(!supports_kitty(&info));
     info.multiplexer = None;

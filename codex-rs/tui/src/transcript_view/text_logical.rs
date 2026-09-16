@@ -45,6 +45,7 @@ pub(super) fn logical_lines(lines: &[HyperlinkLine]) -> Vec<LogicalLine> {
                 };
                 entry.origin.range.end = source.range.start;
                 entry.append(line, source);
+                entry.line.image = line.image.clone();
                 logical.push(entry);
             }
         }

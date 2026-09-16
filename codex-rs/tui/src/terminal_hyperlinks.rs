@@ -150,12 +150,14 @@ pub(crate) struct HyperlinkLine {
 // repeating an entire logical line for every wrapped fragment.
 impl std::fmt::Debug for HyperlinkLine {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("HyperlinkLine")
+        let mut debug = formatter.debug_struct("HyperlinkLine");
+        debug
             .field("line", &self.line)
-            .field("hyperlinks", &self.hyperlinks)
-            .field("image", &self.image)
-            .finish()
+            .field("hyperlinks", &self.hyperlinks);
+        if let Some(image) = &self.image {
+            debug.field("image", image);
+        }
+        debug.finish()
     }
 }
 
@@ -411,10 +413,15 @@ pub(crate) fn remap_source_wrapped_line(
                     })
                 })
                 .collect();
+            let image = source
+                .image
+                .clone()
+                .filter(|_| wrapped.range == (0..text.len()) && displayed == text);
             HyperlinkLine {
                 line,
                 hyperlinks,
                 source: Some(logical.wrapped(wrapped.range, wrapped.prefix_bytes)),
+                image,
             }
         })
         .collect()

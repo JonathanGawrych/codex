@@ -17,6 +17,40 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[test]
+fn retained_transcript_keeps_image_rows_through_layout_and_scrolling() {
+    let image = image::RgbaImage::from_pixel(
+        /*width*/ 40,
+        /*height*/ 40,
+        image::Rgba([30, 70, 110, 255]),
+    );
+    let mut png = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, png.get_ref());
+    let preview = crate::terminal_images::ImagePreview::from_base64(&encoded).unwrap();
+    let layout = TextLayout::new(preview.lines(/*width*/ 8), /*width*/ 8);
+    let layout = layout.rewrap(/*width*/ 10);
+    let area = ratatui::layout::Rect::new(
+        /*x*/ 2, /*y*/ 3, /*width*/ 10, /*height*/ 1,
+    );
+    let mut buffer = ratatui::buffer::Buffer::empty(area);
+    let capture = crate::terminal_images::frame::FrameImageCapture::begin();
+    layout.render(area, &mut buffer, /*start_row*/ 1);
+    let images = capture.finish(&buffer);
+    assert_eq!(images.len(), 1);
+    let mut output = Vec::new();
+    crate::terminal_images::frame::write_rows(
+        &mut output,
+        &mut crate::terminal_images::TerminalImageWriter::ItermInline,
+        &images,
+        &std::collections::BTreeSet::from([3]),
+    )
+    .unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.starts_with("\u{1b}[4;3H\u{1b}]1337;File=inline=1;width=4;height=1;"));
+    insta::assert_snapshot!(buffer.content.iter().map(ratatui::buffer::Cell::symbol).collect::<String>(), @"▀▀▀▀      ");
+}
+
+#[test]
 fn reasoning_copy_joins_soft_wraps_and_retains_the_existing_rendering() {
     let content = "Investigate the failing condition and preserve the current user experience across terminal resize.";
     let cell = ReasoningSummaryCell::new(

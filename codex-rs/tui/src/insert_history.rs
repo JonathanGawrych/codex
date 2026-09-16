@@ -13,6 +13,7 @@ use crate::terminal_hyperlinks::HyperlinkLine;
 use crate::terminal_hyperlinks::decorate_spans;
 use crate::terminal_hyperlinks::plain_hyperlink_lines;
 use crate::terminal_hyperlinks::remap_wrapped_line;
+use crate::terminal_images::TerminalImageWriter;
 use crate::wrapping::RtOptions;
 use crate::wrapping::adaptive_wrap_line;
 use crate::wrapping::line_contains_url_like;
@@ -132,6 +133,8 @@ where
     let wrap_width = area.width.max(1) as usize;
     let (wrapped, wrapped_rows) = wrap_history_hyperlink_lines(lines, wrap_width, wrap_policy);
     let wrapped_lines = wrapped_rows as u16;
+    let mut terminal_image_writer =
+        TerminalImageWriter::new(&codex_terminal_detection::terminal_info());
     match mode {
         InsertHistoryMode::FullScreen => {
             // The existing viewport is immediately replaced in the same draw pass. Clear it
@@ -143,7 +146,7 @@ where
                 if index > 0 {
                     queue!(writer, Print("\r\n"))?;
                 }
-                write_history_line(writer, line, wrap_width)?;
+                write_history_line(writer, line, wrap_width, &mut terminal_image_writer)?;
             }
 
             // Writing raw source text through the terminal preserves its soft-wrap metadata.
@@ -210,7 +213,7 @@ where
 
             for line in &wrapped {
                 queue!(writer, Print("\r\n"))?;
-                write_history_line(writer, line, wrap_width)?;
+                write_history_line(writer, line, wrap_width, &mut terminal_image_writer)?;
             }
 
             queue!(writer, ResetScrollRegion)?;
@@ -295,6 +298,7 @@ fn write_history_line<W: Write>(
     writer: &mut W,
     line: &HyperlinkLine,
     wrap_width: usize,
+    terminal_image_writer: &mut TerminalImageWriter,
 ) -> io::Result<()> {
     let physical_rows = line.width().max(1).div_ceil(wrap_width) as u16;
     if physical_rows > 1 {
@@ -323,9 +327,9 @@ fn write_history_line<W: Write>(
     queue!(writer, Clear(ClearType::UntilNewLine))?;
     if let Some(image) = &line.image
         && line.width() <= wrap_width
-        && crate::terminal_images::supports_kitty(&codex_terminal_detection::terminal_info())
+        && terminal_image_writer.write_image_row(writer, image)?
     {
-        return image.write_kitty(writer);
+        return Ok(());
     }
     // Merge line-level style into each span so that ANSI colors reflect
     // line styles (e.g., blockquotes with green fg).
@@ -554,10 +558,24 @@ mod tests {
                 safe.hyperlinks.clear();
             }
             let original = line.clone();
+            let mut terminal_image_writer =
+                TerminalImageWriter::new(&codex_terminal_detection::terminal_info());
             let mut actual = Vec::new();
             let mut expected = Vec::new();
-            write_history_line(&mut actual, &line, /*wrap_width*/ 80).unwrap();
-            write_history_line(&mut expected, &safe, /*wrap_width*/ 80).unwrap();
+            write_history_line(
+                &mut actual,
+                &line,
+                /*wrap_width*/ 80,
+                &mut terminal_image_writer,
+            )
+            .unwrap();
+            write_history_line(
+                &mut expected,
+                &safe,
+                /*wrap_width*/ 80,
+                &mut terminal_image_writer,
+            )
+            .unwrap();
             assert_eq!(actual, expected);
             assert_eq!(line, original);
             let output = String::from_utf8(actual).unwrap();
@@ -598,9 +616,16 @@ mod tests {
                         HistoryLineWrapPolicy::PreWrap,
                     );
                     let mut actual = Vec::new();
+                    let mut terminal_image_writer =
+                        TerminalImageWriter::new(&codex_terminal_detection::terminal_info());
                     for line in &wrapped {
-                        write_history_line(&mut actual, line, width + 2)
-                            .expect("write history line");
+                        write_history_line(
+                            &mut actual,
+                            line,
+                            width + 2,
+                            &mut terminal_image_writer,
+                        )
+                        .expect("write history line");
                     }
                     let output = String::from_utf8(actual).expect("UTF-8 terminal output");
                     let open = format!("\x1b]8;;{destination}\x07");

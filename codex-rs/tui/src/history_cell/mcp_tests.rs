@@ -463,6 +463,7 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
       └ Returned image
         image-side output
         unknown-side output
+    ▀
 
     transcript:
     • Called node_repl.js({"title":"Inspect results"})
@@ -473,6 +474,7 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
         Script completed
         Output:
         unknown-side output
+    ▀
     "#);
     assert_eq!(
         cell.raw_lines(),
@@ -509,12 +511,13 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join("\n");
-    insta::assert_snapshot!(format!("history:\n{display}\n\ntranscript:\n{transcript}"), @r"
+    insta::assert_snapshot!(format!("history:\n{display}\n\ntranscript:\n{transcript}"), @"
     history:
     • Called cua_repl.js
       └ Returned image
         image-side output
         unknown-side output
+    ▀
 
     transcript:
     • Called cua_repl.js()
@@ -525,6 +528,7 @@ fn code_mode_preserves_text_fields_on_nontext_and_unknown_blocks() {
         Script completed
         Output:
         unknown-side output
+    ▀
     ");
 }
 

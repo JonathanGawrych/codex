@@ -1334,6 +1334,9 @@ impl Tui {
                 self.scrollback,
                 screen_size,
             )?;
+            if !self.owned_screen {
+                terminal.clear_inline_image_rows()?;
+            }
 
             // Update the y position for suspending so Ctrl-Z can place the cursor correctly.
             #[cfg(unix)]
@@ -1468,6 +1471,9 @@ impl Tui {
                 self.scrollback,
                 screen_size,
             )?;
+            if !self.owned_screen {
+                terminal.clear_inline_image_rows()?;
+            }
 
             if needs_full_repaint || history_can_overlap_viewport {
                 terminal.invalidate_viewport();
