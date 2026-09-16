@@ -625,6 +625,14 @@ where
     terminal.clear_after_position(clear_position)
 }
 
+fn clear_terminal_images_from_viewport(terminal: &mut Terminal) -> Result<()> {
+    if crate::terminal_images::supports_kitty(&codex_terminal_detection::terminal_info()) {
+        let rows = terminal.viewport_area.top()..terminal.viewport_area.bottom();
+        crate::terminal_images::delete_kitty_images_in_rows(terminal.backend_mut(), rows)?;
+    }
+    Ok(())
+}
+
 impl Tui {
     pub(crate) fn new(
         terminal: Terminal,
@@ -1029,6 +1037,7 @@ impl Tui {
                 self.scrollback,
                 screen_size,
             )?;
+            clear_terminal_images_from_viewport(terminal)?;
 
             // Update the y position for suspending so Ctrl-Z can place the cursor correctly.
             #[cfg(unix)]
@@ -1149,6 +1158,7 @@ impl Tui {
                 self.scrollback,
                 screen_size,
             )?;
+            clear_terminal_images_from_viewport(terminal)?;
 
             if needs_full_repaint || history_can_overlap_viewport {
                 terminal.invalidate_viewport();

@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
+use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -44,9 +45,10 @@ impl fmt::Debug for ImagePreview {
     }
 }
 
-/// Each strip occupies exactly one terminal row. Partial history replay and scroll-region
-/// insertion can therefore clip or scroll a preview without moving the composer cursor.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Each image row occupies exactly one terminal row. The terminal receives one image strip per row,
+/// so partial history replay and scroll-region insertion can clip or scroll a preview without
+/// moving the composer.
+#[derive(Clone)]
 pub(crate) struct ImageRow {
     preview: ImagePreview,
     row: u16,
@@ -54,6 +56,37 @@ pub(crate) struct ImageRow {
     columns: u16,
     pub(crate) column: u16,
 }
+
+pub(crate) enum TerminalImageWriter {
+    Unsupported,
+    KittyPhysical,
+    ItermInline,
+}
+
+impl fmt::Debug for ImageRow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ImageRow")
+            .field("preview", &self.preview)
+            .field("row", &self.row)
+            .field("rows", &self.rows)
+            .field("columns", &self.columns)
+            .field("column", &self.column)
+            .finish()
+    }
+}
+
+impl PartialEq for ImageRow {
+    fn eq(&self, other: &Self) -> bool {
+        self.preview == other.preview
+            && self.row == other.row
+            && self.rows == other.rows
+            && self.columns == other.columns
+            && self.column == other.column
+    }
+}
+
+impl Eq for ImageRow {}
 
 impl ImagePreview {
     pub(crate) fn from_path(path: &Path) -> Result<Self> {
@@ -152,7 +185,7 @@ impl ImagePreview {
 }
 
 impl ImageRow {
-    pub(crate) fn write_kitty(&self, writer: &mut impl Write) -> std::io::Result<()> {
+    fn png_strip(&self) -> std::io::Result<Vec<u8>> {
         let image = &self.preview.0;
         let top = u32::from(self.row) * image.height() / u32::from(self.rows);
         let bottom = (u32::from(self.row) + 1) * image.height() / u32::from(self.rows);
@@ -168,7 +201,11 @@ impl ImageRow {
         strip
             .write_to(&mut png, ImageFormat::Png)
             .map_err(std::io::Error::other)?;
-        let payload = STANDARD.encode(png.into_inner());
+        Ok(png.into_inner())
+    }
+
+    pub(crate) fn write_kitty(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        let payload = STANDARD.encode(self.png_strip()?);
         let chunks = payload.as_bytes().chunks(/*chunk_size*/ 4096);
         let count = chunks.len();
         writer.write_all(" ".repeat(usize::from(self.column)).as_bytes())?;
@@ -188,6 +225,62 @@ impl ImageRow {
         }
         Ok(())
     }
+
+    fn write_iterm_inline(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        let payload = STANDARD.encode(self.png_strip()?);
+        writer.write_all(" ".repeat(usize::from(self.column)).as_bytes())?;
+        write!(
+            writer,
+            "\x1b]1337;File=inline=1;width={};height=1;preserveAspectRatio=0:{payload}\x07",
+            self.columns
+        )
+    }
+}
+
+impl TerminalImageWriter {
+    pub(crate) fn new(info: &TerminalInfo) -> Self {
+        if supports_iterm_inline(info) {
+            Self::ItermInline
+        } else if supports_kitty(info) {
+            Self::KittyPhysical
+        } else {
+            Self::Unsupported
+        }
+    }
+
+    pub(crate) fn write_image_row(
+        &mut self,
+        writer: &mut impl Write,
+        image: &ImageRow,
+    ) -> std::io::Result<bool> {
+        match self {
+            Self::Unsupported => Ok(false),
+            Self::KittyPhysical => {
+                image.write_kitty(writer)?;
+                Ok(true)
+            }
+            Self::ItermInline => {
+                image.write_iterm_inline(writer)?;
+                Ok(true)
+            }
+        }
+    }
+}
+
+/// Remove Kitty graphics placements from visible terminal rows that the TUI owns.
+///
+/// Text erase commands do not remove Kitty graphics, so a placement that moves into the inline
+/// viewport can otherwise remain composited over a later ratatui frame. Row-scoped deletion keeps
+/// history images above the viewport intact.
+pub(crate) fn delete_kitty_images_in_rows(
+    writer: &mut impl Write,
+    rows: Range<u16>,
+) -> std::io::Result<()> {
+    for row in rows {
+        let row = u32::from(row) + 1;
+        write!(writer, "\x1b_Ga=d,d=Y,y={row};\x1b\\")?;
+    }
+    Ok(())
 }
 
 pub(crate) fn supports_kitty(info: &TerminalInfo) -> bool {
@@ -196,18 +289,8 @@ pub(crate) fn supports_kitty(info: &TerminalInfo) -> bool {
     }
     match info.name {
         TerminalName::Kitty | TerminalName::Ghostty | TerminalName::WezTerm => true,
-        TerminalName::Iterm2 => info
-            .version
-            .as_deref()
-            .and_then(|version| {
-                let mut parts = version.split('.');
-                Some((
-                    parts.next()?.parse::<u32>().ok()?,
-                    parts.next()?.parse::<u32>().ok()?,
-                ))
-            })
-            .is_some_and(|version| version >= (3, 6)),
-        TerminalName::AppleTerminal
+        TerminalName::Iterm2
+        | TerminalName::AppleTerminal
         | TerminalName::WarpTerminal
         | TerminalName::VsCode
         | TerminalName::Alacritty
@@ -218,6 +301,22 @@ pub(crate) fn supports_kitty(info: &TerminalInfo) -> bool {
         | TerminalName::Dumb
         | TerminalName::Unknown => false,
     }
+}
+
+fn supports_iterm_inline(info: &TerminalInfo) -> bool {
+    if info.multiplexer.is_some() || info.name != TerminalName::Iterm2 {
+        return false;
+    }
+    info.version
+        .as_deref()
+        .and_then(|version| {
+            let mut parts = version.split('.');
+            Some((
+                parts.next()?.parse::<u32>().ok()?,
+                parts.next()?.parse::<u32>().ok()?,
+            ))
+        })
+        .is_some_and(|version| version >= (3, 6))
 }
 
 #[cfg(test)]
