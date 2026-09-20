@@ -253,6 +253,33 @@ replace_with_symlink() {
   fi
 }
 
+restart_mac_exec_server() {
+  if [ "$(uname -s)" != Darwin ] || ! command -v launchctl >/dev/null 2>&1; then
+    return
+  fi
+
+  mac_exec_service="gui/$(id -u)/${CODEX_MAC_EXEC_LAUNCHD_LABEL:-us.gawrych.codex.mac-exec}"
+  mac_exec_ready_url="${CODEX_MAC_EXEC_READY_URL:-http://127.0.0.1:28670/readyz}"
+  if ! launchctl print "$mac_exec_service" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "==> Restarting the Mac exec-server"
+  launchctl kickstart -k "$mac_exec_service"
+
+  mac_exec_attempt=0
+  while [ "$mac_exec_attempt" -lt 30 ]; do
+    if curl --fail --silent --max-time 1 "$mac_exec_ready_url" >/dev/null 2>&1; then
+      return
+    fi
+    mac_exec_attempt=$((mac_exec_attempt + 1))
+    sleep 1
+  done
+
+  echo "The Mac exec-server did not become ready at $mac_exec_ready_url." >&2
+  exit 1
+}
+
 echo "==> Installing the stable source package at $active_release_dir"
 activation_stage_dir="$(mktemp -d "$standalone_root/.source-activate.XXXXXX")"
 mkdir "$activation_stage_dir/package"
@@ -282,6 +309,8 @@ if [ "$(uname -s)" = Darwin ] &&
   echo "==> Installing the Codex Chrome native-host compatibility proxy"
   "$checkout_root/scripts/codex-chrome-native-host-proxy.mjs" --install
 fi
+
+restart_mac_exec_server
 
 if [ "$daemon_was_configured" = true ] && [ "$skip_daemon_restart" = false ]; then
   echo "==> Restarting the managed app-server"
