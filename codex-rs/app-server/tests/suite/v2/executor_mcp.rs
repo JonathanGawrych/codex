@@ -10,6 +10,7 @@ use axum::routing::post;
 use codex_app_server_protocol::CapabilityRootLocation;
 use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::ListMcpServerStatusResponse;
+use codex_app_server_protocol::McpServerConnectionStatus;
 use codex_app_server_protocol::McpServerOauthLoginCompletedNotification;
 use codex_app_server_protocol::McpServerOauthLoginResponse;
 use codex_app_server_protocol::McpServerStatus;
@@ -84,6 +85,7 @@ const PROJECT_MCP_SERVER_NAME: &str = "node_repl";
 const PROJECT_MCP_BEARER_TOKEN: &str = "executor-browser-token";
 const PROJECT_MCP_BEARER_ENV_NAME: &str = "NODE_REPL_AUTH_TOKEN";
 const REFRESH_PROBE_SERVER_NAME: &str = "refresh_probe";
+const RECOVERING_MCP_SERVER_NAME: &str = "recovering_browser";
 const TOOL_CALL_ID: &str = "executor-mcp-call";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -235,6 +237,102 @@ async fn selected_executor_discovers_browser_mcp_with_executor_only_bearer_token
     http_server_handle.abort();
     let _ = http_server_handle.await;
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn executor_mcp_recovers_after_the_remote_environment_becomes_available() -> Result<()> {
+    let responses_server = responses::start_mock_server().await;
+    let codex_home = TempDir::new()?;
+    let executor_home = TempDir::new()?;
+    let stdio_server_command = toml::Value::String(stdio_server_bin()?);
+    let executor_cwd = toml::Value::String(executor_home.path().display().to_string());
+    MockResponsesConfig::new(&responses_server.uri())
+        .with_extra_config(&format!(
+            "[mcp_servers.{RECOVERING_MCP_SERVER_NAME}]\ncommand = {stdio_server_command}\ncwd = {executor_cwd}\nenvironment_id = \"{EXECUTOR_ID}\"\nstartup_timeout_sec = 1\n"
+        ))
+        .write(codex_home.path())?;
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let executor_url = format!("ws://{}", listener.local_addr()?);
+    drop(listener);
+    std::fs::write(
+        codex_home.path().join("environments.toml"),
+        format!(
+            "default = \"local\"\ninclude_local = true\n\n[[environments]]\nid = \"{EXECUTOR_ID}\"\nurl = \"{executor_url}\"\nconnect_timeout_sec = 0.05\n"
+        ),
+    )?;
+
+    let mut app_server = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
+        .await?;
+    let thread_id = start_thread(&mut app_server, /*selected_capability_roots*/ None).await?;
+    timeout(DEFAULT_READ_TIMEOUT, async {
+        loop {
+            let servers = mcp_server_statuses(&mut app_server, thread_id.clone()).await?;
+            if servers.iter().any(|server| {
+                server.name == RECOVERING_MCP_SERVER_NAME
+                    && server.runtime_status == Some(McpServerConnectionStatus::Failed)
+            }) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
+
+    let mut executor = Command::new(codex_utils_cargo_bin::cargo_bin("codex")?)
+        .args(["exec-server", "--listen", &executor_url])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .env("CODEX_HOME", executor_home.path())
+        .spawn()?;
+    let stdout = executor.stdout.take().expect("executor stdout is piped");
+    let mut lines = BufReader::new(stdout).lines();
+    assert_eq!(
+        timeout(DEFAULT_READ_TIMEOUT, lines.next_line())
+            .await??
+            .as_deref(),
+        Some(executor_url.as_str())
+    );
+
+    timeout(DEFAULT_READ_TIMEOUT, async {
+        loop {
+            let servers = mcp_server_statuses(&mut app_server, thread_id.clone()).await?;
+            if servers.iter().any(|server| {
+                server.name == RECOVERING_MCP_SERVER_NAME
+                    && server.runtime_status == Some(McpServerConnectionStatus::Connected)
+                    && server.tools.contains_key("echo")
+            }) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
+
+    let request_id = app_server
+        .send_mcp_server_tool_call_request(McpServerToolCallParams {
+            thread_id,
+            server: RECOVERING_MCP_SERVER_NAME.to_string(),
+            tool: "echo".to_string(),
+            arguments: Some(json!({"message": "remote MCP recovered"})),
+            meta: None,
+        })
+        .await?;
+    let response: McpServerToolCallResponse =
+        timeout(DEFAULT_READ_TIMEOUT, app_server.read_response(request_id)).await??;
+    assert_eq!(
+        response
+            .structured_content
+            .and_then(|content| content.get("echo").cloned()),
+        Some(json!("ECHOING: remote MCP recovered"))
+    );
+
+    executor.kill().await?;
     Ok(())
 }
 

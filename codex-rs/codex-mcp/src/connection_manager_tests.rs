@@ -9,10 +9,10 @@ use crate::elicitation::ElicitationReviewer;
 use crate::elicitation::elicitation_is_rejected_by_policy;
 use crate::mcp::tests::test_elicitation_config;
 use crate::rmcp_client::AsyncManagedClient;
-use crate::rmcp_client::CODEX_APPS_RECONNECT_INITIAL_BACKOFF;
-use crate::rmcp_client::CodexAppsStartupReconnect;
+use crate::rmcp_client::MCP_STARTUP_RECONNECT_INITIAL_BACKOFF;
 use crate::rmcp_client::ManagedClient;
 use crate::rmcp_client::ManagedClientFuture;
+use crate::rmcp_client::McpStartupReconnect;
 use crate::rmcp_client::StartupOutcomeError;
 use crate::rmcp_client::list_tools_for_client_uncached;
 use crate::runtime::McpRuntimeContext;
@@ -684,7 +684,7 @@ async fn connection_statuses_follow_latest_reconnect_outcome() {
         release.notify_one();
         finished.notified().await;
         assert_eq!(manager.connection_statuses().await, expected(status));
-        tokio::time::advance(CODEX_APPS_RECONNECT_INITIAL_BACKOFF * 2).await;
+        tokio::time::advance(MCP_STARTUP_RECONNECT_INITIAL_BACKOFF * 2).await;
     }
     assert_eq!(attempts.load(Ordering::SeqCst), 3);
 }
@@ -835,7 +835,7 @@ fn create_test_manager_with_failed_apps_startup(
             codex_apps_tools_cache_context: Some(cache_context),
             tool_catalog_cache_context: None,
             startup_complete: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            startup_reconnect: Some(Arc::new(CodexAppsStartupReconnect::new(reconnect_factory))),
+            startup_reconnect: Some(Arc::new(McpStartupReconnect::new(reconnect_factory))),
             cancel_token: CancellationToken::new(),
         },
     );
@@ -3939,7 +3939,7 @@ async fn later_tool_list_retries_after_failed_reconnect_and_keeps_cached_tools()
     );
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
 
-    tokio::time::advance(CODEX_APPS_RECONNECT_INITIAL_BACKOFF).await;
+    tokio::time::advance(MCP_STARTUP_RECONNECT_INITIAL_BACKOFF).await;
     let second_reconnect_finished = reconnect_finished.notified();
     let tools = manager.list_all_tools().await;
     assert_eq!(
@@ -3952,7 +3952,7 @@ async fn later_tool_list_retries_after_failed_reconnect_and_keeps_cached_tools()
     second_reconnect_finished.await;
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
 
-    tokio::time::advance(CODEX_APPS_RECONNECT_INITIAL_BACKOFF).await;
+    tokio::time::advance(MCP_STARTUP_RECONNECT_INITIAL_BACKOFF).await;
     let tools = manager.list_all_tools().await;
     assert_eq!(
         tools
@@ -3963,7 +3963,7 @@ async fn later_tool_list_retries_after_failed_reconnect_and_keeps_cached_tools()
     );
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
 
-    tokio::time::advance(CODEX_APPS_RECONNECT_INITIAL_BACKOFF).await;
+    tokio::time::advance(MCP_STARTUP_RECONNECT_INITIAL_BACKOFF).await;
     let third_reconnect_finished = reconnect_finished.notified();
     let tools = manager.list_all_tools().await;
     assert_eq!(

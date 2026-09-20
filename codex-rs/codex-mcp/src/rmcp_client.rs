@@ -102,8 +102,8 @@ pub(crate) const CODEX_APPS_REFRESH_DURATION_METRIC: &str = "codex.apps.refresh.
 pub(crate) const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) const DEFAULT_TOOL_TIMEOUT: Duration = Duration::from_secs(300);
 
-pub(crate) const CODEX_APPS_RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
-const CODEX_APPS_RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
+pub(crate) const MCP_STARTUP_RECONNECT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
+const MCP_STARTUP_RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(30);
 
 const UNTRUSTED_CONNECTOR_META_KEYS: &[&str] = &[
     "connector_id",
@@ -155,7 +155,7 @@ pub(crate) type ManagedClientFuture =
     Shared<BoxFuture<'static, Result<ManagedClient, StartupOutcomeError>>>;
 
 #[derive(Default)]
-struct CodexAppsStartupReconnectState {
+struct McpStartupReconnectState {
     current_client: Option<ManagedClient>,
     last_error: Option<StartupOutcomeError>,
     reconnect_in_flight: bool,
@@ -164,25 +164,32 @@ struct CodexAppsStartupReconnectState {
 }
 
 #[derive(Clone)]
-struct CodexAppsStartupStatusContext {
+struct McpStartupStatusContext {
     submit_id: String,
     server_name: String,
     tx_event: Sender<Event>,
 }
 
-pub(crate) struct CodexAppsStartupReconnect {
+pub(crate) struct McpStartupReconnect {
     factory: Arc<dyn Fn() -> ManagedClientFuture + Send + Sync>,
-    state: StdMutex<CodexAppsStartupReconnectState>,
-    startup_status_context: Option<CodexAppsStartupStatusContext>,
+    state: StdMutex<McpStartupReconnectState>,
+    startup_status_context: Option<McpStartupStatusContext>,
+    retry_until_connected: Option<CancellationToken>,
 }
 
-impl CodexAppsStartupReconnect {
+impl McpStartupReconnect {
     pub(crate) fn new(factory: Arc<dyn Fn() -> ManagedClientFuture + Send + Sync>) -> Self {
         Self {
             factory,
-            state: StdMutex::new(CodexAppsStartupReconnectState::default()),
+            state: StdMutex::new(McpStartupReconnectState::default()),
             startup_status_context: None,
+            retry_until_connected: None,
         }
+    }
+
+    fn until_connected(mut self, cancel_token: CancellationToken) -> Self {
+        self.retry_until_connected = Some(cancel_token);
+        self
     }
 
     fn with_startup_status_context(
@@ -191,7 +198,7 @@ impl CodexAppsStartupReconnect {
         server_name: String,
         tx_event: Option<Sender<Event>>,
     ) -> Self {
-        self.startup_status_context = tx_event.map(|tx_event| CodexAppsStartupStatusContext {
+        self.startup_status_context = tx_event.map(|tx_event| McpStartupStatusContext {
             submit_id,
             server_name,
             tx_event,
@@ -227,58 +234,85 @@ impl CodexAppsStartupReconnect {
 
         let reconnect = Arc::clone(self);
         tokio::spawn(async move {
-            let result = (reconnect.factory)().await;
-            let startup_status_context = reconnect.startup_status_context.clone();
-            let recovered = {
-                let mut state = reconnect
-                    .state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                state.reconnect_in_flight = false;
-                match result {
-                    Ok(client) => {
-                        state.current_client = Some(client);
-                        state.last_error = None;
-                        state.consecutive_failures = 0;
-                        state.retry_not_before = None;
-                        true
+            loop {
+                let result = (reconnect.factory)().await;
+                let startup_status_context = reconnect.startup_status_context.clone();
+                let retry_after = {
+                    let mut state = reconnect
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    match result {
+                        Ok(client) => {
+                            state.current_client = Some(client);
+                            state.last_error = None;
+                            state.reconnect_in_flight = false;
+                            state.consecutive_failures = 0;
+                            state.retry_not_before = None;
+                            None
+                        }
+                        Err(error) => {
+                            state.last_error = Some(error.clone());
+                            state.consecutive_failures =
+                                state.consecutive_failures.saturating_add(1);
+                            let retry_after =
+                                mcp_startup_reconnect_backoff(state.consecutive_failures);
+                            state.retry_not_before = Some(TokioInstant::now() + retry_after);
+                            warn!(
+                                error = %error,
+                                retry_after_ms = retry_after.as_millis(),
+                                "MCP startup reconnect failed"
+                            );
+                            Some(retry_after)
+                        }
                     }
-                    Err(error) => {
-                        state.last_error = Some(error.clone());
-                        state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-                        let retry_after = codex_apps_reconnect_backoff(state.consecutive_failures);
-                        state.retry_not_before = Some(TokioInstant::now() + retry_after);
-                        warn!(
-                            error = %error,
-                            retry_after_ms = retry_after.as_millis(),
-                            "Apps MCP startup reconnect failed; continuing with cached tools"
-                        );
-                        false
+                };
+
+                let Some(retry_after) = retry_after else {
+                    if let Some(context) = startup_status_context {
+                        let _ = context
+                            .tx_event
+                            .send(Event {
+                                id: context.submit_id,
+                                msg: EventMsg::McpStartupUpdate(McpStartupUpdateEvent {
+                                    server: context.server_name,
+                                    status: McpStartupStatus::Ready,
+                                }),
+                            })
+                            .await;
+                    }
+                    return;
+                };
+
+                let Some(cancel_token) = reconnect.retry_until_connected.as_ref() else {
+                    reconnect
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .reconnect_in_flight = false;
+                    return;
+                };
+                tokio::select! {
+                    () = tokio::time::sleep(retry_after) => {}
+                    () = cancel_token.cancelled() => {
+                        reconnect
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .reconnect_in_flight = false;
+                        return;
                     }
                 }
-            };
-
-            if recovered && let Some(context) = startup_status_context {
-                let _ = context
-                    .tx_event
-                    .send(Event {
-                        id: context.submit_id,
-                        msg: EventMsg::McpStartupUpdate(McpStartupUpdateEvent {
-                            server: context.server_name,
-                            status: McpStartupStatus::Ready,
-                        }),
-                    })
-                    .await;
             }
         });
     }
 }
 
-fn codex_apps_reconnect_backoff(consecutive_failures: u32) -> Duration {
+fn mcp_startup_reconnect_backoff(consecutive_failures: u32) -> Duration {
     let exponent = consecutive_failures.saturating_sub(1).min(5);
-    CODEX_APPS_RECONNECT_INITIAL_BACKOFF
+    MCP_STARTUP_RECONNECT_INITIAL_BACKOFF
         .saturating_mul(1 << exponent)
-        .min(CODEX_APPS_RECONNECT_MAX_BACKOFF)
+        .min(MCP_STARTUP_RECONNECT_MAX_BACKOFF)
 }
 
 #[derive(Clone)]
@@ -422,7 +456,7 @@ pub(crate) struct AsyncManagedClient {
     pub(crate) codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
     pub(crate) tool_catalog_cache_context: Option<McpToolCatalogCacheContext>,
     pub(crate) startup_complete: Arc<AtomicBool>,
-    pub(crate) startup_reconnect: Option<Arc<CodexAppsStartupReconnect>>,
+    pub(crate) startup_reconnect: Option<Arc<McpStartupReconnect>>,
     pub(crate) cancel_token: CancellationToken,
 }
 
@@ -463,6 +497,12 @@ impl AsyncManagedClient {
             None
         };
         let startup_complete = Arc::new(AtomicBool::new(false));
+        let uses_remote_environment = resolved_environment
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .is_some_and(|environment| environment.is_remote());
+        let supports_startup_reconnect = is_codex_apps_mcp_server || uses_remote_environment;
         let startup = Arc::new(ManagedClientStartup {
             server_name,
             server,
@@ -485,16 +525,20 @@ impl AsyncManagedClient {
             startup_complete: Arc::clone(&startup_complete),
         });
         let client = startup.start();
-        let startup_reconnect = is_codex_apps_mcp_server.then(|| {
+        let startup_reconnect = supports_startup_reconnect.then(|| {
             let startup = Arc::clone(&startup);
-            Arc::new(
-                CodexAppsStartupReconnect::new(Arc::new(move || startup.start()))
-                    .with_startup_status_context(
-                        startup_submit_id,
-                        reconnect_server_name,
-                        reconnect_tx_event,
-                    ),
-            )
+            let reconnect = McpStartupReconnect::new(Arc::new(move || startup.start()))
+                .with_startup_status_context(
+                    startup_submit_id,
+                    reconnect_server_name,
+                    reconnect_tx_event,
+                );
+            let reconnect = if uses_remote_environment {
+                reconnect.until_connected(cancel_token.clone())
+            } else {
+                reconnect
+            };
+            Arc::new(reconnect)
         });
         Self {
             client,
