@@ -15,7 +15,9 @@ impl AsyncManagedClient {
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.reconnect_in_flight {
+            if state.reconnect_in_flight
+                && (reconnect.retry_until_connected.is_none() || state.last_error.is_none())
+            {
                 return Status::Starting;
             }
             state
