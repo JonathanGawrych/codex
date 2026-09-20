@@ -8,21 +8,22 @@ use image::ImageReader;
 use image::Limits;
 
 const MAX_SOURCE_BASE64_BYTES: usize = 48 * 1024 * 1024;
-const MAX_PREVIEW_BASE64_BYTES: usize = 2 * 1024 * 1024;
-const MAX_PREVIEW_DIMENSION: u32 = 512;
+const MAX_PREVIEW_BASE64_BYTES: usize = 256 * 1024;
+const MAX_PREVIEW_DIMENSION: u32 = 192;
 const MAX_SOURCE_DIMENSION: u32 = 8192;
 const MAX_DECODED_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
 
 pub(super) fn generated_image_preview(result: &str) -> String {
-    if result.len() <= MAX_PREVIEW_BASE64_BYTES {
-        return result.to_string();
-    }
     if result.len() > MAX_SOURCE_BASE64_BYTES {
         return String::new();
     }
 
     let Ok(bytes) = BASE64_STANDARD.decode(result) else {
-        return String::new();
+        return if result.len() <= MAX_PREVIEW_BASE64_BYTES {
+            result.to_string()
+        } else {
+            String::new()
+        };
     };
     let mut reader = ImageReader::new(Cursor::new(bytes));
     reader.set_format(ImageFormat::Png);
@@ -32,8 +33,19 @@ pub(super) fn generated_image_preview(result: &str) -> String {
     limits.max_alloc = Some(MAX_DECODED_ALLOC_BYTES);
     reader.limits(limits);
     let Ok(image) = reader.decode() else {
-        return String::new();
+        return if result.len() <= MAX_PREVIEW_BASE64_BYTES {
+            result.to_string()
+        } else {
+            String::new()
+        };
     };
+
+    if image.width() <= MAX_PREVIEW_DIMENSION
+        && image.height() <= MAX_PREVIEW_DIMENSION
+        && result.len() <= MAX_PREVIEW_BASE64_BYTES
+    {
+        return result.to_string();
+    }
 
     let rgba = image.to_rgba8();
     let preview = image::imageops::thumbnail(&rgba, MAX_PREVIEW_DIMENSION, MAX_PREVIEW_DIMENSION);
