@@ -824,6 +824,9 @@ mod tests {
         let root = tempfile::tempdir().expect("temp dir");
         let codex_self_exe = root.path().join("bin").join("codex");
         let codex_linux_sandbox_exe = root.path().join("aliases").join("codex-linux-sandbox");
+        std::fs::create_dir_all(codex_self_exe.parent().expect("codex parent"))
+            .expect("create codex parent");
+        std::fs::write(&codex_self_exe, []).expect("create codex executable");
         let runtime_paths =
             ExecServerRuntimePaths::new(codex_self_exe, Some(codex_linux_sandbox_exe))
                 .expect("runtime paths");
