@@ -515,6 +515,8 @@ const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-d
 pub(crate) struct ChatWidgetInit {
     pub(crate) config: Config,
     pub(crate) local_settings: crate::local_settings::LocalSettings,
+    /// Local directory used to run the client-owned status-line command.
+    pub(crate) status_line_command_cwd: PathBuf,
     pub(crate) frame_requester: FrameRequester,
     pub(crate) app_event_tx: AppEventSender,
     /// App-server-backed runner used by status surfaces for workspace metadata probes.

@@ -477,6 +477,7 @@ async fn configured_pet_load_is_deferred_until_after_construction() {
     let init = ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&cfg),
+        status_line_command_cwd: cfg.cwd.to_path_buf(),
         config: cfg.clone(),
         frame_requester: FrameRequester::test_dummy(),
         app_event_tx: tx,

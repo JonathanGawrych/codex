@@ -14,6 +14,7 @@ impl ChatWidget {
         let ChatWidgetInit {
             config,
             local_settings,
+            status_line_command_cwd,
             frame_requester,
             app_event_tx,
             workspace_command_runner,
@@ -113,7 +114,7 @@ impl ChatWidget {
             }),
             transcript: TranscriptState::new(active_cell),
             raw_output_mode: local_settings.tui.raw_output_mode,
-            status_line_command_cwd: config.cwd.to_path_buf(),
+            status_line_command_cwd,
             config,
             local_settings,
             effective_service_tier,

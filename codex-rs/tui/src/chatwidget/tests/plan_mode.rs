@@ -1642,6 +1642,7 @@ async fn make_startup_chat_with_cli_overrides(
     let init = ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&cfg),
+        status_line_command_cwd: cfg.cwd.to_path_buf(),
         config: cfg.clone(),
         frame_requester: FrameRequester::test_dummy(),
         app_event_tx: AppEventSender::new(unbounded_channel::<AppEvent>().0),

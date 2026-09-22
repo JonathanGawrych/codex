@@ -816,6 +816,7 @@ impl App {
         crate::chatwidget::ChatWidgetInit {
             local_settings: self.local_settings.clone(),
             config: cfg,
+            status_line_command_cwd: self.launch_cwd.clone(),
             frame_requester: tui.frame_requester(),
             app_event_tx: self.app_event_tx.clone(),
             workspace_command_runner: self.workspace_command_runner.clone(),

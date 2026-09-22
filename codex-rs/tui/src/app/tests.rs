@@ -679,6 +679,7 @@ fn set_test_initial_prompt(app: &mut App, initial_prompt: String) {
     app.chat_widget = ChatWidget::new_with_app_event(ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&config),
+        status_line_command_cwd: config.cwd.to_path_buf(),
         config,
         frame_requester: crate::tui::FrameRequester::test_dummy(),
         app_event_tx: app.app_event_tx.clone(),
@@ -8312,6 +8313,7 @@ async fn replace_chat_widget_reseeds_collab_agent_metadata_for_replay() {
     let replacement = ChatWidget::new_with_app_event(ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&app.config),
+        status_line_command_cwd: app.launch_cwd.clone(),
         config: app.config.clone(),
         frame_requester: crate::tui::FrameRequester::test_dummy(),
         app_event_tx: app.app_event_tx.clone(),

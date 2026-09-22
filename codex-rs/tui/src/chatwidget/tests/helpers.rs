@@ -192,6 +192,7 @@ pub(super) async fn make_chatwidget_manual_with_auth(
     let common = ChatWidgetInit {
         requires_openai_auth: cfg.model_provider.requires_openai_auth,
         local_settings: crate::local_settings::LocalSettings::from(&cfg),
+        status_line_command_cwd: cfg.cwd.to_path_buf(),
         config: cfg,
         frame_requester,
         app_event_tx,
