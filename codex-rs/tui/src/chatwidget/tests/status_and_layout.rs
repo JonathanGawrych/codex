@@ -508,6 +508,7 @@ async fn configured_pet_load_is_deferred_until_after_construction() {
     let init = ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&cfg),
+        status_line_command_cwd: cfg.cwd.to_path_buf(),
         config: cfg.clone(),
         frame_requester: FrameRequester::test_dummy(),
         app_event_tx: tx,
@@ -5650,9 +5651,10 @@ fn hook_status_frame(chat: &ChatWidget, width: u16) -> String {
         .expect("render hook activity frame");
     // Windows path normalization drops Display's final newline; make composed
     // frames independent of that platform difference.
+    // The status bullet blinks independently of hook layout.
     normalized_backend_snapshot(terminal.backend())
         .trim_end()
-        .to_string()
+        .replace("\"◦ Working (", "\"• Working (")
 }
 
 // Combined visual snapshot using vt100 for history + direct buffer overlay for UI.

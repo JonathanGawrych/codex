@@ -470,6 +470,8 @@ const DEFAULT_STATUS_LINE_ITEMS: [&str; 3] = ["model-with-reasoning", "current-d
 pub(crate) struct ChatWidgetInit {
     pub(crate) config: Config,
     pub(crate) local_settings: crate::local_settings::LocalSettings,
+    /// Local directory used to run the client-owned status-line command.
+    pub(crate) status_line_command_cwd: PathBuf,
     pub(crate) frame_requester: FrameRequester,
     pub(crate) app_event_tx: AppEventSender,
     /// App-server-backed runner used by status surfaces for workspace metadata probes.
@@ -1247,9 +1249,11 @@ impl ChatWidget {
             self.app_event_tx.send(AppEvent::InsertHistoryCell(active));
             self.request_pending_usage_output_insertion();
         }
-        self.app_event_tx.send(AppEvent::InsertHistoryCell(
-            history_cell::with_created_at(cell, self.history_cell_created_at_ms),
-        ));
+        self.app_event_tx
+            .send(AppEvent::InsertHistoryCell(history_cell::with_created_at(
+                cell,
+                self.history_cell_created_at_ms,
+            )));
     }
 
     fn take_history_insertion_prefix(
@@ -1277,14 +1281,17 @@ impl ChatWidget {
         {
             // Only break exec grouping if the cell renders visible lines.
             if !self.has_active_stream_tail() {
-                return self.transcript.take_active_cell_with_created_at()
-                    .map(|(cell, created_at_ms)| history_cell::with_created_at(cell, created_at_ms));
+                return self.transcript.take_active_cell_with_created_at().map(
+                    |(cell, created_at_ms)| history_cell::with_created_at(cell, created_at_ms),
+                );
             }
         } else if !keep_placeholder_header_active
             && self.has_completed_tool_activity()
             && !cell.transcript_lines(history_width).is_empty()
         {
-            return self.transcript.take_active_cell_with_created_at()
+            return self
+                .transcript
+                .take_active_cell_with_created_at()
                 .map(|(cell, created_at_ms)| history_cell::with_created_at(cell, created_at_ms));
         }
         None

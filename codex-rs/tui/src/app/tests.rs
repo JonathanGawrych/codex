@@ -77,10 +77,10 @@ mod realtime_start;
 mod reasoning_resume_tests;
 #[path = "tests/recap_generation_tests.rs"]
 mod recap_generation;
-#[path = "tests/resume_shutdown_tests.rs"]
-mod resume_shutdown_tests;
 #[path = "tests/remote_user_input_tests.rs"]
 mod remote_user_input_tests;
+#[path = "tests/resume_shutdown_tests.rs"]
+mod resume_shutdown_tests;
 mod safety_buffering;
 #[path = "tests/server_queue_tests.rs"]
 mod server_queue_tests;
@@ -753,6 +753,7 @@ fn set_test_initial_prompt(app: &mut App, initial_prompt: String) {
     app.chat_widget = ChatWidget::new_with_app_event(ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&config),
+        status_line_command_cwd: config.cwd.to_path_buf(),
         config,
         frame_requester: crate::tui::FrameRequester::test_dummy(),
         app_event_tx: app.app_event_tx.clone(),
@@ -7674,10 +7675,16 @@ async fn backtrack_selection_prompts_for_rollback_or_fork() {
     );
 
     app.apply_backtrack_selection(expected.clone());
-    let selected_cell = Arc::clone(&app.transcript_cells[nth_user_position(&app.transcript_cells, expected.nth_user_message).unwrap()]);
+    let selected_cell = Arc::clone(
+        &app.transcript_cells
+            [nth_user_position(&app.transcript_cells, expected.nth_user_message).unwrap()],
+    );
     // Older history can arrive while the action picker is open.
     let older_index = nth_user_position(&app.transcript_cells, /*nth*/ 0).unwrap();
-    app.transcript_cells.insert(older_index, user_cell("older loaded prompt", Vec::new(), Vec::new(), Vec::new()));
+    app.transcript_cells.insert(
+        older_index,
+        user_cell("older loaded prompt", Vec::new(), Vec::new(), Vec::new()),
+    );
     app.chat_widget
         .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     app.chat_widget
@@ -7697,7 +7704,13 @@ async fn backtrack_selection_prompts_for_rollback_or_fork() {
             && prompt == expected.prompt
     );
     assert_eq!(
-        crate::app_backtrack::user_count(&app.transcript_cells[..app.transcript_cells.iter().position(|cell| Arc::ptr_eq(cell, &selected_cell)).unwrap()]),
+        crate::app_backtrack::user_count(
+            &app.transcript_cells[..app
+                .transcript_cells
+                .iter()
+                .position(|cell| Arc::ptr_eq(cell, &selected_cell))
+                .unwrap()]
+        ),
         expected.nth_user_message + 1,
     );
     app.transcript_cells.remove(older_index);
@@ -8271,12 +8284,14 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
                 model_context_window: None,
                 collaboration_mode_kind: ModeKind::default(),
             })),
-            RolloutItem::EventMsg(EventMsg::UserMessage(codex_protocol::protocol::UserMessageEvent {
-                message: message.to_string(),
-                images,
-                local_images,
-                ..Default::default()
-            })),
+            RolloutItem::EventMsg(EventMsg::UserMessage(
+                codex_protocol::protocol::UserMessageEvent {
+                    message: message.to_string(),
+                    images,
+                    local_images,
+                    ..Default::default()
+                },
+            )),
             RolloutItem::EventMsg(EventMsg::TurnComplete(TurnCompleteEvent {
                 turn_id: turn_id.to_string(),
                 last_agent_message: None,
@@ -8351,7 +8366,8 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
         mention_bindings: Vec::new(),
     };
 
-    let selected_cell = Arc::clone(&app.transcript_cells[nth_user_position(&app.transcript_cells, 1).unwrap()]);
+    let selected_cell =
+        Arc::clone(&app.transcript_cells[nth_user_position(&app.transcript_cells, 1).unwrap()]);
     let control = Box::pin(app.handle_event(
         &mut tui,
         &mut app_server,
@@ -8426,7 +8442,6 @@ async fn prompt_edit_forks_before_selected_prompt_and_preserves_source() -> Resu
     Ok(())
 }
 
-
 #[tokio::test]
 async fn prompt_edit_before_first_prompt_forks_a_resumable_empty_prefix() -> Result<()> {
     let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
@@ -8476,7 +8491,8 @@ async fn prompt_edit_before_first_prompt_forks_a_resumable_empty_prefix() -> Res
             app.transcript_cells.push(Arc::from(cell));
         }
     }
-    let selected_cell = Arc::clone(&app.transcript_cells[nth_user_position(&app.transcript_cells, 0).unwrap()]);
+    let selected_cell =
+        Arc::clone(&app.transcript_cells[nth_user_position(&app.transcript_cells, 0).unwrap()]);
     let mut tui = crate::tui::test_support::make_test_tui()?;
     Box::pin(app.handle_event(
         &mut tui,
@@ -8907,7 +8923,10 @@ async fn prompt_edit_reverts_earlier_and_first_visible_prompts_in_place() -> Res
     let stable_cwd = "/tmp/project";
     let cwd = test_path_buf(stable_cwd).display().to_string();
     let transcript = transcript.replace(&cwd, &format!("{stable_cwd:<width$}", width = cwd.len()));
-    insta::assert_snapshot!("owned_prompt_revert_retained_history", crate::test_support::normalize_snapshot_times(&transcript));
+    insta::assert_snapshot!(
+        "owned_prompt_revert_retained_history",
+        crate::test_support::normalize_snapshot_times(&transcript)
+    );
     assert!(Arc::ptr_eq(
         &child,
         &app.thread_event_channels[&child_id].store
@@ -9138,6 +9157,7 @@ async fn replace_chat_widget_reseeds_collab_agent_metadata_for_replay() {
     let replacement = ChatWidget::new_with_app_event(ChatWidgetInit {
         requires_openai_auth: true,
         local_settings: crate::local_settings::LocalSettings::from(&app.config),
+        status_line_command_cwd: app.launch_cwd.clone(),
         config: app.config.clone(),
         frame_requester: crate::tui::FrameRequester::test_dummy(),
         app_event_tx: app.app_event_tx.clone(),

@@ -253,8 +253,8 @@ mod resize_reflow;
 mod resume_config;
 mod right_click_paste;
 mod safety_buffering;
-mod server_version_notice;
 mod server_queue;
+mod server_version_notice;
 mod session_lifecycle;
 mod session_picker;
 mod side;
@@ -816,6 +816,7 @@ impl App {
         crate::chatwidget::ChatWidgetInit {
             local_settings: self.local_settings.clone(),
             config: cfg,
+            status_line_command_cwd: self.launch_cwd.clone(),
             frame_requester: tui.frame_requester(),
             app_event_tx: self.app_event_tx.clone(),
             workspace_command_runner: self.workspace_command_runner.clone(),
