@@ -14,7 +14,7 @@ an image does not recreate the service or modify its volumes.
 Run from a clean Codex checkout:
 
 ```sh
-CARGO_BUILD_JOBS=6 deploy/personas/runtimes/codex/build-transfer-macos.sh
+deploy/personas/runtimes/codex/build-transfer-macos.sh
 ```
 
 The helper derives the image tag from the current Git commit, verifies that the
