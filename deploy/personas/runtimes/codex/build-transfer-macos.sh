@@ -17,7 +17,7 @@ remote_archive="$nas_image_directory/$(basename "$archive")"
 
 codex_uid="${CODEX_UID:-1026}"
 codex_gid="${CODEX_GID:-100}"
-cargo_build_jobs="${CARGO_BUILD_JOBS:-4}"
+cargo_build_jobs="${CARGO_BUILD_JOBS:-2}"
 
 case "$source_commit" in
     *[!0-9a-f]* | "")

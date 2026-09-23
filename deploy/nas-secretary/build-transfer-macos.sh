@@ -5,6 +5,22 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 repository_root="$(cd "$script_dir/../.." && pwd)"
 source_commit="$(git -C "$repository_root" rev-parse --short=12 HEAD)"
 image="codex-secretary:git-${source_commit}-synology"
+expected_codex_version="$(
+    awk '
+        $0 == "[workspace.package]" {
+            in_workspace_package = 1
+            next
+        }
+        in_workspace_package && /^\[/ {
+            exit
+        }
+        in_workspace_package && /^version = "/ {
+            gsub(/^version = "|"$/, "")
+            print
+            exit
+        }
+    ' "$repository_root/codex-rs/Cargo.toml"
+)"
 
 nas_ssh_config="${NAS_SSH_CONFIG:-$HOME/.claude/projects/-Volumes-docker-gawrych-server/memory/nas_ssh_config}"
 nas_ssh_host="${NAS_SSH_HOST:-nas}"
@@ -15,7 +31,7 @@ remote_archive="$nas_image_directory/$(basename "$archive")"
 
 codex_uid="${CODEX_UID:-1026}"
 codex_gid="${CODEX_GID:-100}"
-cargo_build_jobs="${CARGO_BUILD_JOBS:-4}"
+cargo_build_jobs="${CARGO_BUILD_JOBS:-2}"
 
 case "$source_commit" in
     *[!0-9a-f]* | "")
@@ -23,6 +39,11 @@ case "$source_commit" in
         exit 1
         ;;
 esac
+
+if [[ ! "$expected_codex_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "invalid Codex workspace version: $expected_codex_version" >&2
+    exit 1
+fi
 
 case "$nas_image_directory" in
     *[!A-Za-z0-9._/-]* | "")
@@ -101,7 +122,7 @@ docker run --rm --platform linux/amd64 --network none --read-only --user 0 \
     '
 
 codex_version="$(docker run --rm --platform linux/amd64 --network none --read-only "$image" --version)"
-if [[ "$codex_version" != "codex-cli 0.151.0" ]]; then
+if [[ "$codex_version" != "codex-cli $expected_codex_version" ]]; then
     echo "unexpected Codex version: $codex_version" >&2
     exit 1
 fi
