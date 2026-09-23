@@ -93,6 +93,8 @@
 ; Allow reading standard config directories.
 (allow file-read* (subpath "/etc"))
 (allow file-read* (subpath "/private/etc"))
+(allow file-read* file-test-existence
+  (literal "/System/Library/OpenSSL/openssl.cnf"))
 
 (allow file-read* file-test-existence
   (literal "/System/Library/CoreServices")

@@ -260,6 +260,54 @@ fn filesystem_helper_platform_defaults_do_not_grant_applications_directory() {
 }
 
 #[test]
+fn filesystem_helper_platform_defaults_allow_system_openssl_config() {
+    let openssl_config = Path::new("/System/Library/OpenSSL/openssl.cnf");
+    if !openssl_config.exists() {
+        return;
+    }
+
+    let workspace = TempDir::new().expect("temp workspace");
+    let file_system_policy =
+        FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry::new(
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::Minimal,
+            },
+            FileSystemAccessMode::Read,
+        )]);
+    let args = create_seatbelt_command_args_with_profile(
+        CreateSeatbeltCommandArgsParams {
+            command: vec!["/bin/cat".to_string(), openssl_config.display().to_string()],
+            file_system_sandbox_policy: &file_system_policy,
+            network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+            sandbox_policy_cwd: workspace.path(),
+            enforce_managed_network: false,
+            managed_network: None,
+            environment_id: None,
+            network: None,
+            extra_allow_unix_sockets: &[],
+        },
+        MacosSeatbeltProfile::FileSystemHelper,
+        /*allowed_symlinked_codex_home*/ None,
+    )
+    .expect("build restricted seatbelt command");
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(args)
+        .current_dir(workspace.path())
+        .output()
+        .expect("read OpenSSL config under seatbelt");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success()
+        && stderr.contains("sandbox-exec: sandbox_apply: Operation not permitted")
+    {
+        return;
+    }
+    assert!(
+        output.status.success(),
+        "OpenSSL config should be readable under the minimal filesystem helper policy: {stderr}"
+    );
+}
+
+#[test]
 fn process_platform_defaults_allow_scratch_without_granting_it_to_filesystem_helpers() {
     let workspace = tempfile::Builder::new()
         .prefix("codex-seatbelt-approved-project-")
