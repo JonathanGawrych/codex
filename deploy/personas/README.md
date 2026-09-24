@@ -44,3 +44,17 @@ Recheck immediately before updating the NAS Compose project's Codex image tag an
 gracefully recreating only its Codex service. Do not interrupt active chats to make
 the service idle. Preserve state and enrollment, verify RPC health and reconnection,
 and keep the previous immutable image for rollback.
+
+Run the NAS deployment commands from `/volume2/docker/gawrych-server`:
+
+```sh
+docker compose config --quiet
+docker compose up -d --no-deps --wait codex
+```
+
+The NAS repository's main `docker-compose.yml` must attach Codex to
+`gawrych-server_secretary-messages` and `gawrych-server_secretary-findhub`, in
+addition to its default network. Keep these memberships and network definitions
+in that same file so ordinary `docker compose up -d --wait` preserves access.
+Verify the rendered Codex networks before recreating it. Do not depend on
+optional override files, and do not start gmkit as part of a Codex update.
