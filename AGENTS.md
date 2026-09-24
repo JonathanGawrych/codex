@@ -4,6 +4,7 @@
 - Build on the Mac using `deploy/personas/runtimes/codex/build-transfer-macos.sh`; preserve the previous immutable NAS image for rollback.
 - Wait until all NAS chats are idle, including child threads and turns waiting for approval or input. Recheck through the shared App Server immediately before deployment. Do not interrupt active chats to make the service idle.
 - Gracefully recreate only the Codex service, preserve its state and enrollment, and verify the deployed revision, RPC health, and reconnection afterward. Leave unrelated NAS services unchanged.
+- Keep Codex's default, Messages, and Find Hub network memberships in the NAS's main `/volume2/docker/gawrych-server/docker-compose.yml`. Verify the rendered networks before an update; normal startup must work with `docker compose up -d --wait`, without override files.
 
 # Rust/codex-rs
 
