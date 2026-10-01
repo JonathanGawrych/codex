@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing::warn;
 
-const REMOTE_CONTROL_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const REMOTE_CONTROL_CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 pub(crate) const REMOTE_CONTROL_IDLE_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 #[cfg(not(test))]
 const REMOTE_CONTROL_TRANSPORT_EVENT_SEND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -441,6 +441,10 @@ fn remote_control_message_starts_connection(message: &JSONRPCMessage) -> bool {
 fn remote_control_client_is_alive(client: &ClientState, now: Instant) -> bool {
     now.duration_since(client.last_activity_at) < REMOTE_CONTROL_CLIENT_IDLE_TIMEOUT
 }
+
+#[cfg(test)]
+#[path = "client_tracker_idle_tests.rs"]
+mod idle_tests;
 
 #[cfg(test)]
 mod tests {
